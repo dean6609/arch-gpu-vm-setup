@@ -4,10 +4,26 @@
 > Supports EasyAntiCheat (Fortnite ✅), Looking Glass, VFIO, patched QEMU/EDK2,  
 > and dynamic GPU switching between host and VM without rebooting.
 
+---
+
+## ⚠️ DISCLAIMER — READ BEFORE USING
+
+| | |
+|---|---|
+| 🔒 | **Educational purposes only.** This project is for learning about Linux virtualization and GPU passthrough. |
+| ⚠️ | **Author is not responsible** for any damage, data loss, or account bans that may result from using this software. |
+| 📸 | **This is a working snapshot** for the author's specific hardware configuration. It is tested and functional on the author's system only. |
+| 🚫 | **No new versions will be released.** This version is final and functional for the creator. |
+| 🍴 | **Users can fork and adapt** with AI assistance for their specific system hardware and requirements. |
+| ⚖️ | **GPU passthrough and anti-cheat evasion may violate game Terms of Service** and result in account bans. Use at your own risk. |
+
+---
+
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
-![Platform](https://img.shields.io/badge/platform-Arch%20Linux-brightgreen)
+![Platform](https://img.shields.io/badge/platform-Arch%20Linux%2B%20Dusky-brightgreen)
 ![WM](https://img.shields.io/badge/WM-Hyprland%20%2B%20UWSM-purple)
-![Status](https://img.shields.io/badge/status-working-success)
+![Status](https://img.shields.io/badge/status-completed-success)
+![DE](https://img.shields.io/badge/DE-Dusky%20rice-blue)
 
 ---
 
@@ -42,6 +58,7 @@
 ## 📋 Requirements
 
 - Arch Linux (kernel-zen recommended for ACS patch support)
+- [Dusky rice](https://github.com/dusklinux/dusky) (Hyprland environment this was built on)
 - Hyprland + UWSM (required for gaming-mode GPU switching)
 - yay or paru (AUR helper)
 - sudo access
@@ -99,6 +116,40 @@ The gaming mode script handles automatic GPU switching between Linux and Windows
 
 ---
 
+## 🖱️ Monitor Switching vs Looking Glass
+
+This project supports **two methods** for using the Windows VM with your GPU:
+
+### Method 1: Physical Monitor Input Switching (Default)
+
+This project **intentionally uses physical monitor input switching** instead of Looking Glass window for the primary gaming experience:
+
+| Benefit | Explanation |
+|---------|-------------|
+| **Native refresh rates** | Use full 240Hz, 144Hz, 120Hz — not limited by Looking Glass frame rate |
+| **Lower latency** | Direct display output, no capture/streaming overhead |
+| **Better compatibility** | Some games run better with direct GPU output |
+
+**How to use:**
+1. Start gaming mode: `./gaming-mode.sh`
+2. Switch your monitor's input to the dGPU output (DP or HDMI port on your graphics card)
+3. Play your games at native refresh rates
+4. When done, switch monitor input back to iGPU output (HDMI/DP on motherboard)
+5. Stop gaming mode to return GPU to Linux
+
+### Method 2: Looking Glass Window
+
+Looking Glass is also fully supported for those who prefer a windowed experience:
+
+**How to use:**
+1. Start gaming mode: `./gaming-mode.sh`
+2. Use the Looking Glass window on your Linux desktop
+3. **Capture/Release**: Press `Right Ctrl` (default escape key) to capture or release mouse/keyboard inside the Looking Glass window
+
+**Summary:** Both methods work. Physical switching gives better performance and native refresh rates. Looking Glass window is more convenient for streaming/multitasking.
+
+---
+
 ## 🛡️ Anti-Detection Patches
 
 This project compiles patched versions of QEMU and EDK2/OVMF that hide 
@@ -149,7 +200,7 @@ arch-gpu-vm-setup/
 
 ## ⚠️ Important Notes
 
-- **Hyprland + UWSM required** for gaming mode GPU switching
+- **[Dusky rice](https://github.com/dusklinux/dusky) + Hyprland + UWSM required** for gaming mode GPU switching
 - **AMD GPUs** require VBIOS dump to fix Error Code 43 in Windows
 ```bash
   sudo sh -c 'echo 1 > /sys/bus/pci/devices/0000:01:00.0/rom && \
@@ -163,9 +214,23 @@ arch-gpu-vm-setup/
 
 ## 🤝 Credits & References
 
-- [AutoVirt](https://github.com/Scrut1ny/AutoVirt) — QEMU/EDK2 patches and VM spoofing techniques
-- [Omarchy PR #3454](https://github.com/basecamp/omarchy/pull/3454) — GPU passthrough automation inspiration
-- [Looking Glass](https://looking-glass.io/) — Low-latency VM display
+### 🏗️ Built with AI Vibecoding
+
+This project was built entirely with AI assistance (vibecoding). The author used AI to:
+- Generate and adapt QEMU/EDK2 anti-detection patches
+- Create the modular shell script architecture
+- Automate GPU binding and switching logic
+- Write documentation and troubleshooting guides
+
+**Base projects for adaptation:**
+- [AutoVirt](https://github.com/Scrut1ny/AutoVirt) by Scrut1ny — QEMU/EDK2 patches, VM spoofing techniques, project architecture inspiration
+- [AutoVirt Demo Video](https://www.youtube.com/watch?v=dakWYBC6Jug) — Shows what's possible with similar setup
+- [Omarchy PR #3454](https://github.com/basecamp/omarchy/pull/3454) by slawomir-andreasik — GPU passthrough automation inspiration
+
+### 🛠️ Technologies
+
+- [Looking Glass](https://looking-glass.io/) — Low-latency VM display capture
+- [Dusky rice](https://github.com/dusklinux/dusky) — The Hyprland environment this project was built on
 - [VFIO community](https://vfio.blogspot.com/) — GPU passthrough documentation
 
 ---
