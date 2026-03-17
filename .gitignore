@@ -1,0 +1,28 @@
+# Logs
+logs/
+*.log
+
+# Generated config (user-specific)
+gaming-mode.conf
+config.conf
+
+# Compiled binaries and build artifacts
+src/
+*.o
+*.so
+
+# Firmware dumps (user-specific)
+resources/firmware/
+*.rom
+*.bin
+
+# Backup files
+*.bak
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temp files
+/tmp/
