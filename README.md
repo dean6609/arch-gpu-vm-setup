@@ -16,6 +16,8 @@
 | 🚫 | **No new versions will be released.** This version is final and functional for the creator. |
 | 🍴 | **Users can fork and adapt** with AI assistance for their specific system hardware and requirements. |
 | ⚖️ | **GPU passthrough and anti-cheat evasion may violate game Terms of Service** and result in account bans. Use at your own risk. |
+| ⚠️ | **Tested with linux-zen 6.19.8** — future kernel versions may break VFIO, Looking Glass, or GPU binding. |
+| 🔧 | **No maintenance or updates planned.** If something breaks with newer versions, use AI assistance to adapt, specifying these exact versions as your working baseline. |
 
 ---
 
@@ -57,11 +59,71 @@
 
 ## 📋 Requirements
 
-- Arch Linux (kernel-zen recommended for ACS patch support)
-- [Dusky rice](https://github.com/dusklinux/dusky) (Hyprland environment this was built on)
-- Hyprland + UWSM (required for gaming-mode GPU switching)
+- **Arch Linux** (not tested on other distros)
+- **linux-zen kernel** (REQUIRED — see below)
+- Hyprland 0.54.x+
+- UWSM 0.26.x+
 - yay or paru (AUR helper)
 - sudo access
+
+### ⚠️ linux-zen Kernel is REQUIRED
+
+The **linux-zen** kernel is **not optional** and must be installed and set as the default boot option:
+
+**Why linux-zen is required:**
+- The ACS override patch (`pcie_acs_override=downstream,multifunction`) is built into linux-zen
+- This patch is essential for proper IOMMU group isolation, allowing GPU passthrough to work
+- The standard Linux kernel may work but is **NOT tested** — use at your own risk
+
+**Installation and setup:**
+```bash
+# Install linux-zen and headers
+sudo pacman -S linux-zen linux-zen-headers
+
+# Set as default boot entry (replace with your actual entry filename)
+sudo bootctl set-default 2026-03-13_13-42-53_linux-zen.conf
+
+# To find your entry filename:
+ls /boot/loader/entries/
+```
+
+### Note about Dusky rice
+
+This project was developed on the [Dusky rice](https://github.com/dusklinux/dusky) which includes a full Hyprland environment pre-configured. If you use Dusky, everything works out of the box. If not, you need at minimum Hyprland + UWSM plus the standard packages installed by the setup modules.
+
+---
+
+## 📦 Verified Working Versions
+
+These are the exact versions used when this project was built and tested.
+If something breaks in the future, try matching these versions.
+Using newer versions may or may not work — this project is not actively maintained.
+
+| Component | Version | Notes |
+|-----------|---------|-------|
+| Arch Linux | Rolling (March 2026) | |
+| linux-zen | 6.19.8.zen1-1 | Required — has ACS patch |
+| Hyprland | 0.54.2 | |
+| UWSM | 0.26.4 | |
+| QEMU (compiled) | 10.2.0 | Compiled from source with patches |
+| QEMU (system) | 10.2.1-1 | Used as build dependency |
+| EDK2/OVMF | 202508-1 | System package for dependencies |
+| libvirt | 12.1.0-1 | |
+| virt-manager | 5.1.0-3 | |
+| swtpm | 0.10.1-1 | |
+| Looking Glass | B6 | Compiled from source |
+| Mesa | 26.0.2-1 | AMD GPU drivers |
+| vulkan-radeon | 26.0.2-1 | |
+| yay | 12.5.7 | AUR helper |
+| Python | 3.14.3 | |
+
+To install a specific package version in Arch:
+```bash
+# Downgrade a package if needed
+sudo downgrade package-name
+# Or from Arch archive:
+# https://archive.archlinux.org/packages/
+```
 
 ---
 
