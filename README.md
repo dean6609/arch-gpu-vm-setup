@@ -29,6 +29,34 @@
 
 ---
 
+## 📸 Screenshots
+
+> Screenshots coming soon. The setup runs entirely in terminal via interactive menus.
+> 
+> **Main menu preview:**
+> ```
+> ╔══════════════════════════════════════════════╗
+> ║         >> GPU Passthrough Gaming <<         ║
+> ║              Arch Linux Edition              ║
+> ╚══════════════════════════════════════════════╝
+> 
+>   [1]  Prerequisites Check
+>   [2]  BIOS Configuration Guide
+>   [3]  Virtualization Setup (QEMU/KVM/libvirt)
+>   [4]  VFIO / GPU Passthrough Configuration
+>   [5]  GPU Binding Management
+>   [6]  Compile QEMU (with anti-detection patches)
+>   [7]  Compile EDK2/OVMF (patched firmware)
+>   [8]  Install Looking Glass
+>   [9]  Deploy Windows VM
+>   [10] Fortnite/EAC Specific Patches
+>   [11] System Diagnostics
+>   [G]  Gaming Mode
+>   [0]  Exit
+> ```
+
+---
+
 ## ✅ Tested & Working
 
 | Game | Anti-Cheat | Status |
@@ -262,15 +290,36 @@ arch-gpu-vm-setup/
 
 ## ⚠️ Important Notes
 
-- **[Dusky rice](https://github.com/dusklinux/dusky) + Hyprland + UWSM required** for gaming mode GPU switching
+- **Hyprland + UWSM required** for gaming mode GPU switching. This project was developed on the [Dusky rice](https://github.com/dusklinux/dusky) but Dusky is NOT required.
 - **AMD GPUs** require VBIOS dump to fix Error Code 43 in Windows
 ```bash
   sudo sh -c 'echo 1 > /sys/bus/pci/devices/0000:01:00.0/rom && \
   cat /sys/bus/pci/devices/0000:01:00.0/rom > firmware/rx580.rom && \
   echo 0 > /sys/bus/pci/devices/0000:01:00.0/rom'
 ```
+  > ⚠️ Replace `0000:01:00.0` with YOUR GPU's actual PCI address.
+  > Find it with: `lspci | grep -i vga`
 - **VALORANT** does not work — Vanguard uses kernel-level detection
 - Backup your system before running VFIO configuration
+
+---
+
+## 🔧 Adapting for Your System
+
+This project is a working snapshot for specific hardware. To adapt it for your system:
+
+1. **Fork this repository**
+2. **Use AI assistance** (Claude, ChatGPT, etc.) with this prompt as a starting point:
+   > I want to adapt arch-gpu-vm-setup (https://github.com/dean6609/arch-gpu-vm-setup) for my system. My hardware is: [describe your CPU, GPUs, motherboard]. The verified working versions are listed in the README. What do I need to change for my specific setup?
+3. **Key files to adapt:**
+   - `gaming-mode-setup.sh` — run this wizard, it auto-detects most values
+   - `modules/03_vfio_setup.sh` — GPU PCI addresses are auto-detected
+   - `modules/08_deploy_vm.sh` — CPU topology is auto-detected via lscpu
+4. **Common issues and where to look:**
+   - AMD GPU Error Code 43 → VBIOS dump required (see Important Notes)
+   - IOMMU groups mixed → use linux-zen with pcie_acs_override kernel parameter
+   - Looking Glass crash → try B6 instead of B7 (AMD GPUs known issue with B7)
+   - Black screen after GPU switch → check UWSM env-hyprland WLR_DRM_DEVICES value
 
 ---
 
