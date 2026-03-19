@@ -21,6 +21,19 @@ readonly LG_SRC_DIR="/tmp/lg-b6"
 clone_lg_b6_source() {
 	if [[ -d "$LG_SRC_DIR/.git" ]]; then
 		fmtr::log "Looking Glass B6 source already exists at $LG_SRC_DIR"
+		# Verify critical submodules are initialized (cimgui/imgui required by CMake)
+		if [[ ! -d "$LG_SRC_DIR/repos/LGMP/.git" ]] || \
+		   [[ ! -d "$LG_SRC_DIR/repos/cimgui/.git" ]] || \
+		   [[ ! -d "$LG_SRC_DIR/repos/cimgui/imgui/.git" ]]; then
+			fmtr::warn "Submodules incomplete, re-initializing with shallow clone..."
+			cd "$LG_SRC_DIR" || return 1
+			git submodule update --init --recursive --depth=1 2>&1 | tee -a "$LOG_FILE" || {
+				fmtr::error "Failed to initialize submodules"
+				cd - >/dev/null
+				return 1
+			}
+			cd - >/dev/null
+		fi
 		return 0
 	fi
 
@@ -28,14 +41,18 @@ clone_lg_b6_source() {
 		rm -rf "$LG_SRC_DIR"
 	fi
 
-	fmtr::info "Cloning Looking Glass B6..."
-	git clone --branch B6 https://github.com/gnif/LookingGlass "$LG_SRC_DIR" 2>&1 | tee -a "$LOG_FILE" || {
+	fmtr::info "Cloning Looking Glass B6 (shallow, this may take a few minutes)..."
+	git clone --branch B6 --depth=1 https://github.com/gnif/LookingGlass "$LG_SRC_DIR" 2>&1 | tee -a "$LOG_FILE" || {
 		fmtr::error "Failed to clone Looking Glass B6"
 		return 1
 	}
 
 	cd "$LG_SRC_DIR" || return 1
-	git submodule update --init --recursive 2>&1 | tee -a "$LOG_FILE" || {
+
+	# Use --depth=1 with --recursive so ALL nested submodules (e.g. cimgui->imgui)
+	# are initialized without downloading full history (avoids freezing).
+	fmtr::info "Initializing submodules (shallow recursive, may take a few minutes)..."
+	git submodule update --init --recursive --depth=1 2>&1 | tee -a "$LOG_FILE" || {
 		fmtr::error "Failed to update submodules"
 		cd - >/dev/null
 		return 1
