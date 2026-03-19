@@ -153,16 +153,24 @@ install_kvmfr_module() {
 	$ROOT_ESC mkdir -p "$dkms_dir"
 	$ROOT_ESC cp -r "$module_src"/* "$dkms_dir/"
 
-	# Kernel 6.6+ changed MODULE_IMPORT_NS to require quoted strings.
-	# B6 source uses the old unquoted form → patch it automatically.
+	# Kernel 6.x compatibility patches for B6
 	local kernel_major kernel_minor
 	kernel_major=$(uname -r | cut -d. -f1)
 	kernel_minor=$(uname -r | cut -d. -f2)
-	if (( kernel_major > 6 || ( kernel_major == 6 && kernel_minor >= 6 ) )); then
-		fmtr::info "Patching kvmfr.c MODULE_IMPORT_NS for kernel >= 6.6..."
-		$ROOT_ESC sed -i \
-			's/MODULE_IMPORT_NS(\([A-Z_]*\));/MODULE_IMPORT_NS("\1");/g' \
-			"$dkms_dir/kvmfr.c" 2>>/dev/null || true
+	if (( kernel_major >= 6 )); then
+		fmtr::info "Patching kvmfr.c for kernel 6.x compatibility..."
+		# Fix missing vmalloc.h include for remap_vmalloc_range/vmalloc_user/vfree
+		$ROOT_ESC sed -i 's|#include "kvmfr.h"|#include <linux/vmalloc.h>\n#include "kvmfr.h"|' "$dkms_dir/kvmfr.c" 2>/dev/null || true
+		
+		# class_create macro signature changed in 6.4 (lost THIS_MODULE arg)
+		if (( kernel_major > 6 || ( kernel_major == 6 && kernel_minor >= 4 ) )); then
+			$ROOT_ESC sed -i 's/class_create(THIS_MODULE, KVMFR_DEV_NAME)/class_create(KVMFR_DEV_NAME)/g' "$dkms_dir/kvmfr.c" 2>/dev/null || true
+		fi
+		
+		# MODULE_IMPORT_NS macro requires quoted strings in 6.6+
+		if (( kernel_major > 6 || ( kernel_major == 6 && kernel_minor >= 6 ) )); then
+			$ROOT_ESC sed -i 's/MODULE_IMPORT_NS(\([A-Z_]*\));/MODULE_IMPORT_NS("\1");/g' "$dkms_dir/kvmfr.c" 2>/dev/null || true
+		fi
 	fi
 
 	# Create DKMS configuration
@@ -217,13 +225,18 @@ install_kvmfr_module_manual() {
 	local current_kernel
 	current_kernel=$(uname -r)
 
-	# Kernel 6.6+ patch (in case DKMS copy missed it)
+	# Kernel 6.x patch (in case DKMS copy missed it)
 	local kernel_major kernel_minor
 	kernel_major=$(uname -r | cut -d. -f1)
 	kernel_minor=$(uname -r | cut -d. -f2)
-	if (( kernel_major > 6 || ( kernel_major == 6 && kernel_minor >= 6 ) )); then
-		sed -i 's/MODULE_IMPORT_NS(\([A-Z_]*\));/MODULE_IMPORT_NS("\1");/g' \
-			"$module_src/kvmfr.c" 2>/dev/null || true
+	if (( kernel_major >= 6 )); then
+		sed -i 's|#include "kvmfr.h"|#include <linux/vmalloc.h>\n#include "kvmfr.h"|' "$module_src/kvmfr.c" 2>/dev/null || true
+		if (( kernel_major > 6 || ( kernel_major == 6 && kernel_minor >= 4 ) )); then
+			sed -i 's/class_create(THIS_MODULE, KVMFR_DEV_NAME)/class_create(KVMFR_DEV_NAME)/g' "$module_src/kvmfr.c" 2>/dev/null || true
+		fi
+		if (( kernel_major > 6 || ( kernel_major == 6 && kernel_minor >= 6 ) )); then
+			sed -i 's/MODULE_IMPORT_NS(\([A-Z_]*\));/MODULE_IMPORT_NS("\1");/g' "$module_src/kvmfr.c" 2>/dev/null || true
+		fi
 	fi
 
 	cd "$module_src" || return 1
