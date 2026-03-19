@@ -11,6 +11,9 @@ source "${SCRIPT_DIR}/utils.sh" || {
 	exit 1
 }
 
+# Ensure virsh commands always connect to the system qemu daemon
+export LIBVIRT_DEFAULT_URI="qemu:///system"
+
 # Load configuration (run setup wizard if missing)
 GAMING_MODE_CONF="${SCRIPT_DIR}/gaming-mode.conf"
 if [[ ! -f "$GAMING_MODE_CONF" ]]; then

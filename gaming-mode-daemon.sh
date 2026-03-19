@@ -8,6 +8,10 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Ensure virsh commands always connect to the system qemu daemon
+# This is critical for systemd user services which default to qemu:///session
+export LIBVIRT_DEFAULT_URI="qemu:///system"
+
 readonly STATE_DIR="/tmp/gaming-mode"
 
 # Load configuration

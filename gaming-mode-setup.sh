@@ -12,6 +12,9 @@ source "${SCRIPT_DIR}/utils.sh" || {
 	exit 1
 }
 
+# Ensure virsh commands always connect to the system qemu daemon
+export LIBVIRT_DEFAULT_URI="qemu:///system"
+
 # =============================================================================
 # SECTION 1: Requirements Check
 # =============================================================================
