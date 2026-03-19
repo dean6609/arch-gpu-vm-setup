@@ -243,11 +243,11 @@ confirm_screen() {
 	fmtr::info "If you can see this message, the switch worked correctly."
 	echo ""
 	fmtr::warn "Answer YES to continue starting the Windows VM."
-	fmtr::warn "Answer NO (or wait 30 seconds) to revert everything."
+	fmtr::warn "Answer NO (or wait 120 seconds) to revert everything."
 	echo ""
 
 	local confirm
-	read -t 30 -rp "  Screen looks good? [y/n] (auto-NO in 30s): " confirm
+	read -t 120 -rp "  Screen looks good? [y/n] (auto-NO in 120s): " confirm
 	echo ""
 	confirm=${confirm:-n}
 

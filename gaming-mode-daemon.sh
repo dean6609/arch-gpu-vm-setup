@@ -52,6 +52,14 @@ log() {
 # Safe GPU Bind (CRITICAL function)
 # =============================================================================
 
+release_console() {
+	sudo "${SCRIPT_DIR}/gaming-mode-helper.sh" release_console
+}
+
+bind_console() {
+	sudo "${SCRIPT_DIR}/gaming-mode-helper.sh" bind_console
+}
+
 safe_gpu_bind() {
 	local pci_addr="$1"
 	local target_driver="$2"
@@ -64,19 +72,7 @@ safe_gpu_bind() {
 
 	log "Binding $pci_addr: $current -> $target_driver"
 
-	if [[ "$current" != "none" ]]; then
-		echo "${pci_addr}" >"/sys/bus/pci/drivers/${current}/unbind" 2>/dev/null || true
-		sleep 0.5
-	fi
-
-	# CRITICAL: use echo -n NOT echo "" to clear driver_override
-	# echo "" causes "write error: File exists"
-	echo -n >"${sys_path}/driver_override" 2>/dev/null || true
-	sleep 0.5
-	echo "${target_driver}" >"${sys_path}/driver_override"
-	sleep 0.5
-	echo "${pci_addr}" >"/sys/bus/pci/drivers/${target_driver}/bind"
-	sleep 0.5
+	sudo "${SCRIPT_DIR}/gaming-mode-helper.sh" bind_gpu "$pci_addr" "$target_driver"
 
 	local new_driver
 	new_driver=$(readlink "${sys_path}/driver" 2>/dev/null | xargs basename 2>/dev/null || echo "none")
@@ -160,14 +156,24 @@ daemon_start_gaming() {
 
 	# Step 3: Load vfio modules if not loaded
 	log "Step 3: Loading vfio modules"
-	lsmod | grep -q "^vfio_pci " || modprobe vfio-pci 2>/dev/null || true
-	lsmod | grep -q "^vfio " || modprobe vfio 2>/dev/null || true
-	lsmod | grep -q "^vfio_iommu_type1 " || modprobe vfio_iommu_type1 2>/dev/null || true
+	sudo "${SCRIPT_DIR}/gaming-mode-helper.sh" load_vfio
 	sleep 1
 	log "VFIO modules loaded"
 
-	# Step 4: Bind dGPU to vfio-pci
-	log "Step 4: Binding dGPU to vfio-pci"
+	# Step 4: Restart Hyprland (UWSM will restart it on iGPU)
+	log "Step 4: Killing Hyprland to free dGPU - UWSM will restart it on iGPU..."
+	pkill -x Hyprland 2>/dev/null || true
+	log "Waiting for Hyprland to release dGPU..."
+	sleep 8
+	
+	# Clear failed units caused by killing the compositor abruptly
+	systemctl --user reset-failed 2>/dev/null || true
+
+	# Step 5: Bind dGPU to vfio-pci
+	log "Step 5: Binding dGPU to vfio-pci"
+	log "Releasing VT consoles from GPU"
+	release_console
+
 	if ! safe_gpu_bind "$GPU_PCI" "vfio-pci"; then
 		log "FAILED to bind dGPU to vfio-pci - reverting"
 		daemon_revert
@@ -178,19 +184,16 @@ daemon_start_gaming() {
 		safe_gpu_bind "$GPU_AUDIO_PCI" "vfio-pci" || true
 	fi
 
-	# Step 5: Restart Hyprland (UWSM will restart it on iGPU)
-	log "Step 5: Killing Hyprland - UWSM will restart it on iGPU..."
-	pkill -x Hyprland 2>/dev/null || true
-	sleep 15
 	log "Hyprland recovery wait complete"
+	sleep 7
 
 	# Step 6: Write confirm_needed state
 	echo "confirm_needed" >"${STATE_DIR}/state"
-	log "Step 6: Waiting for user confirmation (30 seconds timeout)"
+	log "Step 6: Waiting for user confirmation (120 seconds timeout)"
 
-	# Step 7: Wait for confirmation with 30 second timeout
+	# Step 7: Wait for confirmation with 120 second timeout
 	local waited=0
-	while ((waited < 30)); do
+	while ((waited < 120)); do
 		if [[ -f "${STATE_DIR}/confirmed" ]]; then
 			rm -f "${STATE_DIR}/confirmed"
 			log "User confirmed - proceeding to start VM"
@@ -211,8 +214,8 @@ daemon_start_gaming() {
 		((waited++))
 	done
 
-	if ((waited >= 30)); then
-		log "No confirmation received after 30s - auto-reverting"
+	if ((waited >= 120)); then
+		log "No confirmation received after 120s - auto-reverting"
 		daemon_revert
 		return
 	fi
@@ -230,11 +233,7 @@ daemon_start_gaming() {
 
 	# Step 9: Setup kvmfr and launch Looking Glass
 	log "Step 9: Setting up Looking Glass"
-	modprobe kvmfr static_size_mb=64 2>/dev/null || true
-	sleep 1
-	if [[ -e /dev/kvmfr0 ]]; then
-		chown "${GM_USER}:kvm" /dev/kvmfr0 2>/dev/null || true
-	fi
+	sudo "${SCRIPT_DIR}/gaming-mode-helper.sh" setup_kvmfr "$GM_USER"
 
 	# Launch Looking Glass if available
 	if command -v looking-glass-client &>/dev/null; then
@@ -283,6 +282,10 @@ daemon_stop_gaming() {
 	if [[ -n "$GPU_AUDIO_PCI" ]]; then
 		safe_gpu_bind "$GPU_AUDIO_PCI" "$GPU_AUDIO_ORIGINAL_DRIVER" || true
 	fi
+	
+	log "Binding VT consoles back to GPU"
+	bind_console
+	
 	log "GPU restored to $GPU_ORIGINAL_DRIVER"
 
 	# Step 3: Update UWSM env back to dGPU
@@ -338,6 +341,9 @@ daemon_revert() {
 	if [[ -n "$GPU_AUDIO_PCI" ]]; then
 		safe_gpu_bind "$GPU_AUDIO_PCI" "$GPU_AUDIO_ORIGINAL_DRIVER" || true
 	fi
+
+	log "Binding VT consoles back to GPU"
+	bind_console
 
 	# Restore UWSM env
 	safe_update_env "$UWSM_ENV" "WLR_DRM_DEVICES" "${DRM_DGPU}"
