@@ -28,18 +28,32 @@ clone_lg_b6_source() {
 		rm -rf "$LG_SRC_DIR"
 	fi
 
-	fmtr::info "Cloning Looking Glass B6..."
-	git clone --branch B6 https://github.com/gnif/LookingGlass "$LG_SRC_DIR" 2>&1 | tee -a "$LOG_FILE" || {
+	fmtr::info "Cloning Looking Glass B6 (this may take a few minutes)..."
+	# Use depth=50 for the clone (tag, not a single branch - git handles this)
+	git clone --branch B6 --depth 50 https://github.com/gnif/LookingGlass "$LG_SRC_DIR" 2>&1 | tee -a "$LOG_FILE" || {
 		fmtr::error "Failed to clone Looking Glass B6"
 		return 1
 	}
 
 	cd "$LG_SRC_DIR" || return 1
-	git submodule update --init --recursive 2>&1 | tee -a "$LOG_FILE" || {
-		fmtr::error "Failed to update submodules"
-		cd - >/dev/null
-		return 1
-	}
+
+	# B6 is an old tag with nested submodules (cimgui->imgui). Use shallow cloning.
+	fmtr::info "Initializing submodules with shallow clones (GIT_SHALLOW=1)..."
+
+	export GIT_SHALLOW=1
+
+	# Init top-level submodules with depth
+	for submod in repos/LGMP repos/PureSpice repos/cimgui repos/nanosvg repos/wayland-protocols; do
+		fmtr::info "  Fetching $submod..."
+		git submodule update --init --depth=1 "$submod" 2>&1 | tee -a "$LOG_FILE" || {
+			fmtr::warn "  $submod failed - trying without depth..."
+			git submodule update --init "$submod" 2>&1 | tee -a "$LOG_FILE" || {
+				fmtr::warn "  $submod failed"
+			}
+		}
+	done
+
+	unset GIT_SHALLOW
 	cd - >/dev/null
 
 	fmtr::log "Looking Glass B6 source ready"
