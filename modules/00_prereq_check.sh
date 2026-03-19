@@ -48,11 +48,34 @@ check_iommu() {
 	fi
 
 	# Check kernel parameters via /proc/cmdline (does not require root)
-	if grep -q "iommu=pt\|iommu=on\|intel_iommu=on\|amd_iommu=on" /proc/cmdline 2>/dev/null; then
-		fmtr::log "IOMMU kernel parameter: configured"
-	else
-		fmtr::warn "IOMMU kernel parameter not found in /proc/cmdline"
-		fmtr::info "Expected: iommu=pt (or intel_iommu=on for Intel)"
+	local cmdline
+	cmdline=$(cat /proc/cmdline 2>/dev/null)
+	local iommu_param_found=false
+
+	if echo "$cmdline" | grep -qE 'iommu=pt|iommu=on|intel_iommu=on|amd_iommu=on'; then
+		fmtr::log "IOMMU kernel parameter: configured (explicit)"
+		iommu_param_found=true
+	fi
+
+	if echo "$cmdline" | grep -qE 'pcie_acs_override='; then
+		fmtr::log "ACS override: configured ($(echo "$cmdline" | grep -oE 'pcie_acs_override=[^ ]*'))"
+		iommu_param_found=true
+	fi
+
+	if echo "$cmdline" | grep -qE 'vfio-pci\.ids='; then
+		fmtr::log "VFIO PCI IDs: configured in cmdline"
+		iommu_param_found=true
+	fi
+
+	if [[ "$iommu_param_found" == false ]]; then
+		# IOMMU groups exist (checked above) but no explicit cmdline param
+		# On AMD this is normal - IOMMU auto-enables when SVM is on in BIOS
+		if [[ "$CPU_VENDOR_ID" == "AuthenticAMD" ]] && ((group_count > 0)); then
+			fmtr::log "IOMMU: auto-enabled by AMD (no explicit kernel param needed)"
+		else
+			fmtr::warn "No IOMMU kernel parameter found in /proc/cmdline"
+			fmtr::info "Consider adding: iommu=pt (or intel_iommu=on for Intel)"
+		fi
 	fi
 
 	# Check if linux-zen is running (has ACS patch)
