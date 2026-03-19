@@ -74,7 +74,8 @@ gpu_mode_host() {
 	fmtr::info "Binding GPU $pci_addr to $original_driver (host mode)..."
 
 	echo "$pci_addr" >/sys/bus/pci/devices/"$pci_addr"/driver/unbind 2>/dev/null || true
-	echo "" >/sys/bus/pci/devices/"$pci_addr"/driver_override 2>/dev/null || true
+	# CRITICAL: use echo -n to clear driver_override, NOT echo ""
+	echo -n >/sys/bus/pci/devices/"$pci_addr"/driver_override 2>/dev/null || true
 
 	if [[ "$original_driver" == "nvidia" ]]; then
 		modprobe nvidia 2>/dev/null || fmtr::warn "Failed to load NVIDIA driver"
@@ -109,7 +110,7 @@ gpu_mode_host() {
 
 			if [[ -n "$dev_driver" ]]; then
 				echo "$dev" >/sys/bus/pci/devices/"$dev"/driver/unbind 2>/dev/null || true
-				echo "" >/sys/bus/pci/devices/"$dev"/driver_override 2>/dev/null || true
+				echo -n >/sys/bus/pci/devices/"$dev"/driver_override 2>/dev/null || true
 			fi
 		done < <(get_iommu_group_devices "$iommu_group")
 	fi
@@ -123,7 +124,7 @@ gpu_mode_none() {
 	fmtr::info "Unbinding GPU $pci_addr (power saving mode)..."
 
 	echo "$pci_addr" >/sys/bus/pci/devices/"$pci_addr"/driver/unbind 2>/dev/null || true
-	echo "" >/sys/bus/pci/devices/"$pci_addr"/driver_override 2>/dev/null || true
+	echo -n >/sys/bus/pci/devices/"$pci_addr"/driver_override 2>/dev/null || true
 
 	local iommu_group
 	iommu_group=$(get_iommu_group "$pci_addr")
@@ -142,7 +143,7 @@ gpu_mode_none() {
 			fi
 
 			echo "$dev" >/sys/bus/pci/devices/"$dev"/driver/unbind 2>/dev/null || true
-			echo "" >/sys/bus/pci/devices/"$dev"/driver_override 2>/dev/null || true
+			echo -n >/sys/bus/pci/devices/"$dev"/driver_override 2>/dev/null || true
 		done < <(get_iommu_group_devices "$iommu_group")
 	fi
 

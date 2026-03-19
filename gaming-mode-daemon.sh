@@ -2,42 +2,51 @@
 
 # =============================================================================
 # Gaming Mode Daemon (Process 2)
-# Background service that handles GPU/VM operations
+# Background systemd service that handles GPU/VM operations
+# Survives Hyprland restarts. Communicates via /tmp/gaming-mode/
 # =============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly SCRIPT_DIR
 
 readonly STATE_DIR="/tmp/gaming-mode"
 
 # Load configuration
 GAMING_MODE_CONF="${SCRIPT_DIR}/gaming-mode.conf"
 if [[ ! -f "$GAMING_MODE_CONF" ]]; then
-	echo "Gaming mode not configured. Run: ./gaming-mode-setup.sh"
+	echo "gaming-mode.conf not found. Run gaming-mode-setup.sh first."
 	exit 1
 fi
 source "$GAMING_MODE_CONF"
 
-# Map conf vars to script vars for readability
-readonly VM_NAME="$GM_VM_NAME"
-readonly GPU_PCI="$GM_GPU_PCI"
-readonly GPU_AUDIO_PCI="$GM_GPU_AUDIO_PCI"
-readonly DRM_IGPU="$GM_DRM_IGPU"
-readonly DRM_DGPU="$GM_DRM_DGPU"
-readonly MONITOR_IGPU="$GM_MONITOR_IGPU"
-readonly MONITOR_DGPU="$GM_MONITOR_DGPU"
-readonly UWSM_ENV="$GM_UWSM_ENV"
-readonly MONITORS_CONF="$GM_MONITORS_CONF"
-readonly RESOLUTION="$GM_RESOLUTION"
-readonly HZ_IGPU="$GM_HZ_IGPU"
-readonly HZ_DGPU="$GM_HZ_DGPU"
-readonly GPU_DRIVER_ORIGINAL="${GM_GPU_DRIVER_ORIGINAL:-amdgpu}"
+# Map conf variables to local constants
+readonly VM_NAME="${GM_VM_NAME:-WindowsVM}"
+readonly GPU_PCI="${GM_GPU_PCI}"
+readonly GPU_AUDIO_PCI="${GM_GPU_AUDIO_PCI}"
+readonly DRM_IGPU="${GM_DRM_IGPU}"
+readonly DRM_DGPU="${GM_DRM_DGPU}"
+readonly MONITOR_IGPU="${GM_MONITOR_IGPU}"
+readonly MONITOR_DGPU="${GM_MONITOR_DGPU}"
+readonly UWSM_ENV="${GM_UWSM_ENV}"
+readonly MONITORS_CONF="${GM_MONITORS_CONF}"
+readonly RESOLUTION="${GM_RESOLUTION:-1920x1080}"
+readonly HZ_IGPU="${GM_HZ_IGPU:-60}"
+readonly HZ_DGPU="${GM_HZ_DGPU:-240}"
+readonly GPU_ORIGINAL_DRIVER="${GM_GPU_ORIGINAL_DRIVER:-${GM_GPU_DRIVER_ORIGINAL:-amdgpu}}"
+readonly GPU_AUDIO_ORIGINAL_DRIVER="${GM_GPU_AUDIO_ORIGINAL_DRIVER:-snd_hda_intel}"
+
+# =============================================================================
+# Logging
+# =============================================================================
 
 log() {
 	local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 	echo "$msg" >>"${STATE_DIR}/log"
 	echo "$msg"
 }
+
+# =============================================================================
+# Safe GPU Bind (CRITICAL function)
+# =============================================================================
 
 safe_gpu_bind() {
 	local pci_addr="$1"
@@ -49,11 +58,15 @@ safe_gpu_bind() {
 
 	[[ "$current" == "$target_driver" ]] && return 0
 
+	log "Binding $pci_addr: $current -> $target_driver"
+
 	if [[ "$current" != "none" ]]; then
 		echo "${pci_addr}" >"/sys/bus/pci/drivers/${current}/unbind" 2>/dev/null || true
 		sleep 0.5
 	fi
 
+	# CRITICAL: use echo -n NOT echo "" to clear driver_override
+	# echo "" causes "write error: File exists"
 	echo -n >"${sys_path}/driver_override" 2>/dev/null || true
 	sleep 0.5
 	echo "${target_driver}" >"${sys_path}/driver_override"
@@ -63,47 +76,128 @@ safe_gpu_bind() {
 
 	local new_driver
 	new_driver=$(readlink "${sys_path}/driver" 2>/dev/null | xargs basename 2>/dev/null || echo "none")
-	[[ "$new_driver" == "$target_driver" ]]
+
+	if [[ "$new_driver" == "$target_driver" ]]; then
+		log "Successfully bound $pci_addr to $target_driver"
+		return 0
+	else
+		log "FAILED to bind $pci_addr to $target_driver (current: $new_driver)"
+		return 1
+	fi
 }
+
+# =============================================================================
+# UWSM Env Update Helper
+# =============================================================================
+
+safe_update_env() {
+	local file="$1"
+	local var="$2"
+	local value="$3"
+
+	if [[ ! -f "$file" ]]; then
+		log "ERROR: $file not found"
+		return 1
+	fi
+
+	if grep -q "^export ${var}=" "$file" 2>/dev/null; then
+		sed -i "s|${var}=.*|${var}=${value}|" "$file"
+		log "Updated $var=$value in $file"
+	else
+		echo "export ${var}=${value}" >>"$file"
+		log "Added $var=$value to $file"
+	fi
+}
+
+# =============================================================================
+# Start Gaming Mode
+# =============================================================================
 
 daemon_start_gaming() {
 	log "=== STARTING GAMING MODE ==="
 
-	log "Step 1: Updating display config to iGPU"
-	sed -i "s|WLR_DRM_DEVICES=.*|WLR_DRM_DEVICES=${DRM_IGPU}|" "$UWSM_ENV" 2>/dev/null || true
-	sed -i "s|AQ_DRM_DEVICES=.*|AQ_DRM_DEVICES=${DRM_IGPU}|" "$UWSM_ENV" 2>/dev/null || true
-	echo "monitor = ${MONITOR_IGPU},${RESOLUTION}@${HZ_IGPU},0x0,1" >"$MONITORS_CONF" 2>/dev/null || true
-	log "Display config updated to iGPU ${HZ_IGPU}Hz"
+	# Verify preconditions
+	log "Verifying preconditions..."
 
-	log "Step 2: Loading vfio modules"
-	modprobe vfio vfio-pci vfio_iommu_type1 2>/dev/null || true
+	local vm_state
+	vm_state=$(virsh domstate "$VM_NAME" 2>/dev/null)
+	if [[ "$vm_state" != "shut off" ]]; then
+		log "ERROR: VM must be shut off (current: $vm_state)"
+		echo "idle" >"${STATE_DIR}/state"
+		return 1
+	fi
+
+	local current_driver
+	current_driver=$(readlink "/sys/bus/pci/devices/${GPU_PCI}/driver" 2>/dev/null | xargs basename 2>/dev/null || echo "none")
+	if [[ "$current_driver" != "$GPU_ORIGINAL_DRIVER" ]]; then
+		log "ERROR: GPU must be bound to $GPU_ORIGINAL_DRIVER (current: $current_driver)"
+		echo "idle" >"${STATE_DIR}/state"
+		return 1
+	fi
+
+	if [[ ! -f "$UWSM_ENV" ]]; then
+		log "ERROR: $UWSM_ENV not found"
+		echo "idle" >"${STATE_DIR}/state"
+		return 1
+	fi
+
+	log "All preconditions met"
+
+	# Step 1: Update UWSM env to iGPU
+	log "Step 1: Updating display config to iGPU"
+	safe_update_env "$UWSM_ENV" "WLR_DRM_DEVICES" "${DRM_IGPU}"
+	safe_update_env "$UWSM_ENV" "AQ_DRM_DEVICES" "${DRM_IGPU}"
+
+	# Step 2: Update monitors.conf to iGPU
+	log "Step 2: Updating monitors.conf to ${MONITOR_IGPU}@${HZ_IGPU}Hz"
+	echo "monitor = ${MONITOR_IGPU},${RESOLUTION}@${HZ_IGPU},0x0,1" >"$MONITORS_CONF" 2>/dev/null || {
+		log "ERROR: Failed to update monitors.conf"
+	}
+
+	# Step 3: Load vfio modules if not loaded
+	log "Step 3: Loading vfio modules"
+	lsmod | grep -q "^vfio_pci " || modprobe vfio-pci 2>/dev/null || true
+	lsmod | grep -q "^vfio " || modprobe vfio 2>/dev/null || true
+	lsmod | grep -q "^vfio_iommu_type1 " || modprobe vfio_iommu_type1 2>/dev/null || true
+	sleep 1
 	log "VFIO modules loaded"
 
-	log "Step 3: Binding dGPU to vfio-pci"
-	safe_gpu_bind "$GPU_PCI" "vfio-pci"
-	safe_gpu_bind "$GPU_AUDIO_PCI" "vfio-pci"
-	log "dGPU bound to vfio-pci"
-	log "Restarting Hyprland to switch to iGPU..."
+	# Step 4: Bind dGPU to vfio-pci
+	log "Step 4: Binding dGPU to vfio-pci"
+	if ! safe_gpu_bind "$GPU_PCI" "vfio-pci"; then
+		log "FAILED to bind dGPU to vfio-pci - reverting"
+		daemon_revert
+		return 1
+	fi
+	# Bind audio device too
+	if [[ -n "$GPU_AUDIO_PCI" ]]; then
+		safe_gpu_bind "$GPU_AUDIO_PCI" "vfio-pci" || true
+	fi
+
+	# Step 5: Restart Hyprland (UWSM will restart it on iGPU)
+	log "Step 5: Killing Hyprland - UWSM will restart it on iGPU..."
 	pkill -x Hyprland 2>/dev/null || true
 	sleep 15
 	log "Hyprland recovery wait complete"
 
-	log "Step 5: Waiting for user confirmation"
+	# Step 6: Write confirm_needed state
 	echo "confirm_needed" >"${STATE_DIR}/state"
-	log "Open gaming-mode.sh and confirm screen looks good"
+	log "Step 6: Waiting for user confirmation (30 seconds timeout)"
 
+	# Step 7: Wait for confirmation with 30 second timeout
 	local waited=0
 	while ((waited < 30)); do
 		if [[ -f "${STATE_DIR}/confirmed" ]]; then
-			rm "${STATE_DIR}/confirmed"
-			log "User confirmed screen looks good"
+			rm -f "${STATE_DIR}/confirmed"
+			log "User confirmed - proceeding to start VM"
 			break
 		fi
+		# Check if user wrote "revert" action
 		if [[ -f "${STATE_DIR}/action" ]]; then
-			local action
-			action=$(cat "${STATE_DIR}/action" 2>/dev/null)
-			if [[ "$action" == "revert" ]]; then
-				rm "${STATE_DIR}/action" 2>/dev/null || true
+			local pending_action
+			pending_action=$(cat "${STATE_DIR}/action" 2>/dev/null)
+			if [[ "$pending_action" == "revert" ]]; then
+				rm -f "${STATE_DIR}/action"
 				log "User requested revert"
 				daemon_revert
 				return
@@ -114,99 +208,181 @@ daemon_start_gaming() {
 	done
 
 	if ((waited >= 30)); then
-		log "No confirmation received, auto-reverting..."
+		log "No confirmation received after 30s - auto-reverting"
 		daemon_revert
 		return
 	fi
 
-	log "Step 6: Starting Windows VM"
+	# Step 8: Start VM
+	log "Step 8: Starting Windows VM..."
 	echo "active" >"${STATE_DIR}/state"
-	virsh start "$VM_NAME" 2>/dev/null || log "Failed to start VM"
-	log "VM started, waiting 40 seconds for boot..."
+	if ! virsh start "$VM_NAME" 2>>"${STATE_DIR}/log"; then
+		log "Failed to start VM - reverting"
+		daemon_revert
+		return
+	fi
+	log "VM started - waiting 40 seconds for boot..."
 	sleep 40
 
-	log "Step 7: Loading kvmfr and launching Looking Glass"
+	# Step 9: Setup kvmfr and launch Looking Glass
+	log "Step 9: Setting up Looking Glass"
 	modprobe kvmfr static_size_mb=64 2>/dev/null || true
 	sleep 1
-	chown "${GM_USER}:kvm" /dev/kvmfr0 2>/dev/null || true
-	looking-glass-client &
-	log "Looking Glass launched"
-	log "Switch monitor to DP1 to play"
-	log "Run gaming-mode.sh and select Stop when done"
+	if [[ -e /dev/kvmfr0 ]]; then
+		chown "${GM_USER}:kvm" /dev/kvmfr0 2>/dev/null || true
+	fi
+
+	# Launch Looking Glass if available
+	if command -v looking-glass-client &>/dev/null; then
+		looking-glass-client 2>/dev/null &
+		log "Looking Glass launched (use Right Ctrl to capture/release input)"
+	else
+		log "looking-glass-client not found - skipping"
+	fi
 
 	log "=== GAMING MODE ACTIVE ==="
+	log "Switch your monitor input to ${MONITOR_DGPU} to play"
+	log "Use gaming-mode.sh option 2 to stop"
 }
+
+# =============================================================================
+# Stop Gaming Mode (NO REBOOT REQUIRED)
+# =============================================================================
 
 daemon_stop_gaming() {
 	log "=== STOPPING GAMING MODE ==="
 	echo "stopping" >"${STATE_DIR}/state"
 
-	log "Step 1: Shutting down VM"
+	# Step 1: Shutdown VM
+	log "Step 1: Shutting down VM..."
 	virsh shutdown "$VM_NAME" 2>/dev/null || true
+
 	local waited=0
 	while ((waited < 60)); do
 		[[ "$(virsh domstate "$VM_NAME" 2>/dev/null)" == "shut off" ]] && break
 		sleep 1
 		((waited++))
 	done
+
 	if [[ "$(virsh domstate "$VM_NAME" 2>/dev/null)" != "shut off" ]]; then
+		log "Force destroying VM..."
 		virsh destroy "$VM_NAME" 2>/dev/null || true
-		sleep 2
+		sleep 3
 	fi
 	log "VM stopped"
 
-	log "Step 2: Restoring GPU to $GPU_DRIVER_ORIGINAL"
-	safe_gpu_bind "$GPU_PCI" "$GPU_DRIVER_ORIGINAL"
-	safe_gpu_bind "$GPU_AUDIO_PCI" "snd_hda_intel"
-	log "GPU restored to $GPU_DRIVER_ORIGINAL"
+	# Step 2: Restore dGPU from vfio-pci to original driver
+	log "Step 2: Restoring GPU to $GPU_ORIGINAL_DRIVER"
+	if ! safe_gpu_bind "$GPU_PCI" "$GPU_ORIGINAL_DRIVER"; then
+		log "WARNING: Failed to restore dGPU driver - manual reboot may be needed"
+	fi
+	if [[ -n "$GPU_AUDIO_PCI" ]]; then
+		safe_gpu_bind "$GPU_AUDIO_PCI" "$GPU_AUDIO_ORIGINAL_DRIVER" || true
+	fi
+	log "GPU restored to $GPU_ORIGINAL_DRIVER"
 
-	log "Step 3: Restoring display config"
-	sed -i "s|WLR_DRM_DEVICES=.*|WLR_DRM_DEVICES=${DRM_DGPU}|" "$UWSM_ENV" 2>/dev/null || true
-	sed -i "s|AQ_DRM_DEVICES=.*|AQ_DRM_DEVICES=${DRM_DGPU}|" "$UWSM_ENV" 2>/dev/null || true
-	echo "monitor = ${MONITOR_DGPU},${RESOLUTION}@${HZ_DGPU},0x0,1" >"$MONITORS_CONF" 2>/dev/null || true
-	log "Display config restored to dGPU ${HZ_DGPU}Hz"
-	log "Restarting Hyprland to switch back to dGPU..."
+	# Step 3: Update UWSM env back to dGPU
+	log "Step 3: Restoring display config to dGPU"
+	safe_update_env "$UWSM_ENV" "WLR_DRM_DEVICES" "${DRM_DGPU}"
+	safe_update_env "$UWSM_ENV" "AQ_DRM_DEVICES" "${DRM_DGPU}"
+
+	# Step 4: Update monitors.conf back to dGPU at full hz
+	echo "monitor = ${MONITOR_DGPU},${RESOLUTION}@${HZ_DGPU},0x0,1" >"$MONITORS_CONF" 2>/dev/null || {
+		log "ERROR: Failed to update monitors.conf"
+	}
+
+	# Step 5: Restart Hyprland on dGPU
+	log "Step 5: Restarting Hyprland on dGPU..."
 	pkill -x Hyprland 2>/dev/null || true
 	sleep 15
-	log "Done. Switch monitor to DP1 for ${HZ_DGPU}Hz"
+
+	# Step 6: Verify Hyprland restarted
+	local attempts=0
+	while ((attempts < 10)); do
+		pgrep -x Hyprland &>/dev/null && break
+		sleep 2
+		((attempts++))
+	done
+
+	if pgrep -x Hyprland &>/dev/null; then
+		log "Hyprland restarted successfully on dGPU"
+		log "Switch your monitor input back to ${MONITOR_DGPU} for ${HZ_DGPU}Hz"
+	else
+		log "WARNING: Hyprland may not have restarted"
+		log "If screen is black, switch monitor to ${MONITOR_DGPU}"
+		log "Hyprland should restart automatically via UWSM"
+	fi
 
 	echo "idle" >"${STATE_DIR}/state"
 	log "=== GAMING MODE STOPPED ==="
+	log "IMPORTANT: Switch your monitor input to ${MONITOR_DGPU} for ${HZ_DGPU}Hz"
 }
+
+# =============================================================================
+# Revert (same as stop but without VM shutdown)
+# =============================================================================
 
 daemon_revert() {
 	log "=== REVERTING CHANGES ==="
+	echo "stopping" >"${STATE_DIR}/state"
 
-	log "Step 1: Restoring GPU to $GPU_DRIVER_ORIGINAL"
-	safe_gpu_bind "$GPU_PCI" "$GPU_DRIVER_ORIGINAL"
-	safe_gpu_bind "$GPU_AUDIO_PCI" "snd_hda_intel"
-	log "GPU restored to $GPU_DRIVER_ORIGINAL"
+	# Restore GPU
+	log "Restoring GPU to $GPU_ORIGINAL_DRIVER"
+	safe_gpu_bind "$GPU_PCI" "$GPU_ORIGINAL_DRIVER" || {
+		log "WARNING: Failed to restore dGPU driver"
+	}
+	if [[ -n "$GPU_AUDIO_PCI" ]]; then
+		safe_gpu_bind "$GPU_AUDIO_PCI" "$GPU_AUDIO_ORIGINAL_DRIVER" || true
+	fi
 
-	log "Step 2: Restoring display config"
-	sed -i "s|WLR_DRM_DEVICES=.*|WLR_DRM_DEVICES=${DRM_DGPU}|" "$UWSM_ENV" 2>/dev/null || true
-	sed -i "s|AQ_DRM_DEVICES=.*|AQ_DRM_DEVICES=${DRM_DGPU}|" "$UWSM_ENV" 2>/dev/null || true
+	# Restore UWSM env
+	safe_update_env "$UWSM_ENV" "WLR_DRM_DEVICES" "${DRM_DGPU}"
+	safe_update_env "$UWSM_ENV" "AQ_DRM_DEVICES" "${DRM_DGPU}"
+
+	# Restore monitors.conf
 	echo "monitor = ${MONITOR_DGPU},${RESOLUTION}@${HZ_DGPU},0x0,1" >"$MONITORS_CONF" 2>/dev/null || true
-	log "Display config restored to dGPU ${HZ_DGPU}Hz"
-	log "Restarting Hyprland to switch back to dGPU..."
+
+	# Restart Hyprland
+	log "Restarting Hyprland on dGPU..."
 	pkill -x Hyprland 2>/dev/null || true
 	sleep 15
+
+	# Verify
+	local attempts=0
+	while ((attempts < 10)); do
+		pgrep -x Hyprland &>/dev/null && break
+		sleep 2
+		((attempts++))
+	done
+
+	if pgrep -x Hyprland &>/dev/null; then
+		log "Hyprland restarted on dGPU"
+	else
+		log "WARNING: Hyprland may not have restarted - check monitor input"
+	fi
 
 	echo "idle" >"${STATE_DIR}/state"
 	log "=== REVERT COMPLETE ==="
 }
 
+# =============================================================================
+# Main Daemon Loop
+# =============================================================================
+
 mkdir -p "$STATE_DIR"
 echo "idle" >"${STATE_DIR}/state"
 : >"${STATE_DIR}/log"
 
-log "Gaming Mode Daemon started"
+log "Gaming Mode Daemon started (PID $$)"
+log "VM: $VM_NAME | GPU: $GPU_PCI | iGPU DRM: $DRM_IGPU | dGPU DRM: $DRM_DGPU"
 
 while true; do
 	if [[ -f "${STATE_DIR}/action" ]]; then
-		action=$(cat "${STATE_DIR}/action")
+		# Read and DELETE action file BEFORE executing (prevents re-execution)
+		action=$(cat "${STATE_DIR}/action" 2>/dev/null)
 		rm -f "${STATE_DIR}/action"
 
-		case $action in
+		case "$action" in
 		start)
 			daemon_start_gaming
 			;;
@@ -215,6 +391,9 @@ while true; do
 			;;
 		revert)
 			daemon_revert
+			;;
+		*)
+			log "Unknown action: $action"
 			;;
 		esac
 	fi

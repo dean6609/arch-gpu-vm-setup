@@ -11,6 +11,13 @@ source "${SCRIPT_DIR}/utils.sh" || {
 	exit 1
 }
 
+# Load VM name from gaming-mode.conf or config.conf
+VM_NAME="WindowsVM"
+if [[ -f "${SCRIPT_DIR}/gaming-mode.conf" ]]; then
+	source "${SCRIPT_DIR}/gaming-mode.conf"
+	VM_NAME="${GM_VM_NAME:-WindowsVM}"
+fi
+
 print_detection_vectors() {
 	fmtr::info "EasyAntiCheat Detection Vectors"
 	echo ""
@@ -59,18 +66,18 @@ print_detection_vectors() {
 verify_hypervisor_hidden() {
 	fmtr::info "Verifying hypervisor concealment settings..."
 
-	if ! $ROOT_ESC virsh dominfo WindowsVM &>/dev/null; then
+	if ! $ROOT_ESC virsh dominfo "$VM_NAME" &>/dev/null; then
 		fmtr::error "VM not found - please run deploy module first"
 		return 1
 	fi
 
-	if $ROOT_ESC virsh dumpxml WindowsVM | grep -qE 'hidden.state=.on.'; then
+	if $ROOT_ESC virsh dumpxml "$VM_NAME" | grep -qE 'hidden.state=.on.'; then
 		fmtr::log "KVM hidden: ENABLED"
 	else
 		fmtr::warn "KVM hidden: NOT ENABLED"
 	fi
 
-	if $ROOT_ESC virsh dumpxml WindowsVM | grep -qE 'vendor_id'; then
+	if $ROOT_ESC virsh dumpxml "$VM_NAME" | grep -qE 'vendor_id'; then
 		fmtr::log "Hyper-V vendor ID spoofing: ENABLED"
 	else
 		fmtr::warn "Hyper-V vendor ID: NOT SPOOFED"
@@ -80,12 +87,12 @@ verify_hypervisor_hidden() {
 verify_pmu_disabled() {
 	fmtr::info "Verifying PMU is disabled..."
 
-	if ! $ROOT_ESC virsh dominfo WindowsVM &>/dev/null; then
+	if ! $ROOT_ESC virsh dominfo "$VM_NAME" &>/dev/null; then
 		fmtr::error "VM not found - please run deploy module first"
 		return 1
 	fi
 
-	if $ROOT_ESC virsh dumpxml WindowsVM | grep -qE 'pmu.state=.off.'; then
+	if $ROOT_ESC virsh dumpxml "$VM_NAME" | grep -qE 'pmu.state=.off.'; then
 		fmtr::log "PMU: DISABLED"
 	else
 		fmtr::warn "PMU: NOT DISABLED"
@@ -95,12 +102,12 @@ verify_pmu_disabled() {
 verify_vmport_disabled() {
 	fmtr::info "Verifying VMPort is disabled..."
 
-	if ! $ROOT_ESC virsh dominfo WindowsVM &>/dev/null; then
+	if ! $ROOT_ESC virsh dominfo "$VM_NAME" &>/dev/null; then
 		fmtr::error "VM not found - please run deploy module first"
 		return 1
 	fi
 
-	if $ROOT_ESC virsh dumpxml WindowsVM | grep -qE 'vmport.state=.off.'; then
+	if $ROOT_ESC virsh dumpxml "$VM_NAME" | grep -qE 'vmport.state=.off.'; then
 		fmtr::log "VMPort: DISABLED"
 	else
 		fmtr::warn "VMPort: NOT DISABLED"
@@ -110,12 +117,12 @@ verify_vmport_disabled() {
 verify_msr_filtering() {
 	fmtr::info "Verifying MSR filtering..."
 
-	if ! $ROOT_ESC virsh dominfo WindowsVM &>/dev/null; then
+	if ! $ROOT_ESC virsh dominfo "$VM_NAME" &>/dev/null; then
 		fmtr::error "VM not found - please run deploy module first"
 		return 1
 	fi
 
-	if $ROOT_ESC virsh dumpxml WindowsVM | grep -qE 'msrs.unknown=.fault.'; then
+	if $ROOT_ESC virsh dumpxml "$VM_NAME" | grep -qE 'msrs.unknown=.fault.'; then
 		fmtr::log "MSR unknown=fault: ENABLED"
 	else
 		fmtr::warn "MSR filtering: NOT CONFIGURED"
@@ -125,18 +132,18 @@ verify_msr_filtering() {
 verify_clock_source() {
 	fmtr::info "Verifying clock source configuration..."
 
-	if ! $ROOT_ESC virsh dominfo WindowsVM &>/dev/null; then
+	if ! $ROOT_ESC virsh dominfo "$VM_NAME" &>/dev/null; then
 		fmtr::error "VM not found - please run deploy module first"
 		return 1
 	fi
 
-	if $ROOT_ESC virsh dumpxml WindowsVM | grep -qE 'kvmclock.*present=.no.'; then
+	if $ROOT_ESC virsh dumpxml "$VM_NAME" | grep -qE 'kvmclock.*present=.no.'; then
 		fmtr::log "KVM clock: DISABLED"
 	else
 		fmtr::warn "KVM clock: STILL ENABLED"
 	fi
 
-	if $ROOT_ESC virsh dumpxml WindowsVM | grep -qE 'hypervclock.*present='; then
+	if $ROOT_ESC virsh dumpxml "$VM_NAME" | grep -qE 'hypervclock.*present='; then
 		fmtr::log "Hyper-V clock: DISABLED"
 	else
 		fmtr::warn "Hyper-V clock: STILL ENABLED"
@@ -146,7 +153,7 @@ verify_clock_source() {
 verify_video_disabled() {
 	fmtr::info "Verifying virtual video configuration..."
 
-	if ! $ROOT_ESC virsh dominfo WindowsVM &>/dev/null; then
+	if ! $ROOT_ESC virsh dominfo "$VM_NAME" &>/dev/null; then
 		fmtr::error "VM not found - please run deploy module first"
 		return 1
 	fi
@@ -155,15 +162,15 @@ verify_video_disabled() {
 	local video_none=0
 	local video_vga=0
 
-	if $ROOT_ESC virsh dumpxml WindowsVM 2>/dev/null | grep -q "driver name='vfio'"; then
+	if $ROOT_ESC virsh dumpxml "$VM_NAME" 2>/dev/null | grep -q "driver name='vfio'"; then
 		has_vfio=1
 	fi
 
-	if $ROOT_ESC virsh dumpxml WindowsVM 2>/dev/null | grep -q "model type='none'"; then
+	if $ROOT_ESC virsh dumpxml "$VM_NAME" 2>/dev/null | grep -q "model type='none'"; then
 		video_none=1
 	fi
 
-	if $ROOT_ESC virsh dumpxml WindowsVM 2>/dev/null | grep -q "model type='vga'"; then
+	if $ROOT_ESC virsh dumpxml "$VM_NAME" 2>/dev/null | grep -q "model type='vga'"; then
 		video_vga=1
 	fi
 
@@ -179,12 +186,12 @@ verify_video_disabled() {
 verify_smbios_spoofing() {
 	fmtr::info "Verifying SMBIOS spoofing..."
 
-	if ! $ROOT_ESC virsh dominfo WindowsVM &>/dev/null; then
+	if ! $ROOT_ESC virsh dominfo "$VM_NAME" &>/dev/null; then
 		fmtr::error "VM not found - please run deploy module first"
 		return 1
 	fi
 
-	if $ROOT_ESC virsh dumpxml WindowsVM | grep -qE 'smbios|file=.*smbios'; then
+	if $ROOT_ESC virsh dumpxml "$VM_NAME" | grep -qE 'smbios|file=.*smbios'; then
 		fmtr::log "SMBIOS: CONFIGURED"
 	else
 		fmtr::warn "SMBIOS: NOT CONFIGURED"
@@ -195,18 +202,18 @@ verify_smbios_spoofing() {
 verify_secure_boot() {
 	fmtr::info "Verifying Secure Boot and TPM..."
 
-	if ! $ROOT_ESC virsh dominfo WindowsVM &>/dev/null; then
+	if ! $ROOT_ESC virsh dominfo "$VM_NAME" &>/dev/null; then
 		fmtr::error "VM not found - please run deploy module first"
 		return 1
 	fi
 
-	if $ROOT_ESC virsh dumpxml WindowsVM | grep -qE 'secure=.yes.'; then
+	if $ROOT_ESC virsh dumpxml "$VM_NAME" | grep -qE 'secure=.yes.'; then
 		fmtr::log "Secure Boot: ENABLED in OVMF"
 	else
 		fmtr::warn "Secure Boot: NOT ENABLED"
 	fi
 
-	if $ROOT_ESC virsh dumpxml WindowsVM | grep -qE '<tpm'; then
+	if $ROOT_ESC virsh dumpxml "$VM_NAME" | grep -qE '<tpm'; then
 		fmtr::log "TPM: CONFIGURED"
 	else
 		fmtr::warn "TPM: NOT CONFIGURED"

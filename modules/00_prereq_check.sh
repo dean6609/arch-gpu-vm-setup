@@ -32,20 +32,35 @@ check_cpu_virtualization() {
 check_iommu() {
 	fmtr::info "Checking IOMMU status..."
 
-	if dmesg | grep -qiE 'iommu|amd-vi|vt-d'; then
-		fmtr::log "IOMMU: Enabled in kernel"
-	else
-		fmtr::error "IOMMU: Not detected - enable in BIOS"
-		return 1
-	fi
-
+	# Check IOMMU groups via sysfs (does not require root/dmesg)
 	if [[ -d /sys/kernel/iommu_groups ]]; then
 		local group_count
-		group_count=$(ls -d /sys/kernel/iommu_groups/*/devices/ 2>/dev/null | wc -l)
-		fmtr::log "IOMMU Groups: $group_count detected"
+		group_count=$(find /sys/kernel/iommu_groups -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l)
+		if ((group_count > 0)); then
+			fmtr::log "IOMMU: Active ($group_count groups found)"
+		else
+			fmtr::error "IOMMU: No groups found - enable IOMMU in BIOS"
+			return 1
+		fi
 	else
 		fmtr::error "IOMMU groups not accessible"
 		return 1
+	fi
+
+	# Check kernel parameters via /proc/cmdline (does not require root)
+	if grep -q "iommu=pt\|iommu=on\|intel_iommu=on\|amd_iommu=on" /proc/cmdline 2>/dev/null; then
+		fmtr::log "IOMMU kernel parameter: configured"
+	else
+		fmtr::warn "IOMMU kernel parameter not found in /proc/cmdline"
+		fmtr::info "Expected: iommu=pt (or intel_iommu=on for Intel)"
+	fi
+
+	# Check if linux-zen is running (has ACS patch)
+	if uname -r | grep -q zen; then
+		fmtr::log "Kernel: linux-zen detected (has ACS patch)"
+	else
+		fmtr::warn "Not running linux-zen kernel - ACS patch may not be available"
+		fmtr::info "Current kernel: $(uname -r)"
 	fi
 
 	return 0

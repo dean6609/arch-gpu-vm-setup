@@ -5,8 +5,11 @@
 # Provides logging, prompts, package installation, and system detection
 # =============================================================================
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly SCRIPT_DIR
+if [[ -z "${SCRIPT_DIR:-}" ]]; then
+	SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
+# Only mark readonly if not already readonly (avoids error when re-sourced)
+readonly SCRIPT_DIR 2>/dev/null || true
 
 # =============================================================================
 # ANSI ESCAPE CODES - Text Styles, Colors, Backgrounds
@@ -22,23 +25,39 @@ readonly TEXT_REVERSE=$'\033[7m'
 readonly TEXT_HIDDEN=$'\033[8m'
 readonly TEXT_STRIKE=$'\033[9m'
 
-readonly TEXT_BLACK=$'\033[30m' TEXT_GRAY=$'\033[90m'
-readonly TEXT_RED=$'\033[31m' TEXT_BRIGHT_RED=$'\033[91m'
-readonly TEXT_GREEN=$'\033[32m' TEXT_BRIGHT_GREEN=$'\033[92m'
-readonly TEXT_YELLOW=$'\033[33m' TEXT_BRIGHT_YELLOW=$'\033[93m'
-readonly TEXT_BLUE=$'\033[34m' TEXT_BRIGHT_BLUE=$'\033[94m'
-readonly TEXT_MAGENTA=$'\033[35m' TEXT_BRIGHT_MAGENTA=$'\033[95m'
-readonly TEXT_CYAN=$'\033[36m' TEXT_BRIGHT_CYAN=$'\033[96m'
-readonly TEXT_WHITE=$'\033[37m' TEXT_BRIGHT_WHITE=$'\033[97m'
+readonly TEXT_BLACK=$'\033[30m'
+readonly TEXT_GRAY=$'\033[90m'
+readonly TEXT_RED=$'\033[31m'
+readonly TEXT_BRIGHT_RED=$'\033[91m'
+readonly TEXT_GREEN=$'\033[32m'
+readonly TEXT_BRIGHT_GREEN=$'\033[92m'
+readonly TEXT_YELLOW=$'\033[33m'
+readonly TEXT_BRIGHT_YELLOW=$'\033[93m'
+readonly TEXT_BLUE=$'\033[34m'
+readonly TEXT_BRIGHT_BLUE=$'\033[94m'
+readonly TEXT_MAGENTA=$'\033[35m'
+readonly TEXT_BRIGHT_MAGENTA=$'\033[95m'
+readonly TEXT_CYAN=$'\033[36m'
+readonly TEXT_BRIGHT_CYAN=$'\033[96m'
+readonly TEXT_WHITE=$'\033[37m'
+readonly TEXT_BRIGHT_WHITE=$'\033[97m'
 
-readonly BACK_BLACK=$'\033[40m' BACK_GRAY=$'\033[100m'
-readonly BACK_RED=$'\033[41m' BACK_BRIGHT_RED=$'\033[101m'
-readonly BACK_GREEN=$'\033[42m' BACK_BRIGHT_GREEN=$'\033[102m'
-readonly BACK_YELLOW=$'\033[43m' BACK_BRIGHT_YELLOW=$'\033[103m'
-readonly BACK_BLUE=$'\033[44m' BACK_BRIGHT_BLUE=$'\033[104m'
-readonly BACK_MAGENTA=$'\033[45m' BACK_BRIGHT_MAGENTA=$'\033[105m'
-readonly BACK_CYAN=$'\033[46m' BACK_BRIGHT_CYAN=$'\033[106m'
-readonly BACK_WHITE=$'\033[47m' BACK_BRIGHT_WHITE=$'\033[107m'
+readonly BACK_BLACK=$'\033[40m'
+readonly BACK_GRAY=$'\033[100m'
+readonly BACK_RED=$'\033[41m'
+readonly BACK_BRIGHT_RED=$'\033[101m'
+readonly BACK_GREEN=$'\033[42m'
+readonly BACK_BRIGHT_GREEN=$'\033[102m'
+readonly BACK_YELLOW=$'\033[43m'
+readonly BACK_BRIGHT_YELLOW=$'\033[103m'
+readonly BACK_BLUE=$'\033[44m'
+readonly BACK_BRIGHT_BLUE=$'\033[104m'
+readonly BACK_MAGENTA=$'\033[45m'
+readonly BACK_BRIGHT_MAGENTA=$'\033[105m'
+readonly BACK_CYAN=$'\033[46m'
+readonly BACK_BRIGHT_CYAN=$'\033[106m'
+readonly BACK_WHITE=$'\033[47m'
+readonly BACK_BRIGHT_WHITE=$'\033[107m'
 
 # =============================================================================
 # LOGGING (low-level)
@@ -98,7 +117,7 @@ prmt::yes_or_no() {
 	while :; do
 		read -rp "$prompt [y/n]: " ans
 		printf '%s\n' "$ans" >>"$LOG_FILE"
-		case ${ans,,} in
+		case $(echo "$ans" | tr '[:upper:]' '[:lower:]') in
 		y*) return 0 ;;
 		n*) return 1 ;;
 		*) printf '\n  [!] Please answer y/n\n' ;;
@@ -239,7 +258,7 @@ detect_distro() {
 
 	if [[ -r /etc/os-release ]]; then
 		. /etc/os-release
-		id=${ID,,}
+		id=$(echo "$ID" | tr '[:upper:]' '[:lower:]')
 	fi
 
 	case "$id" in
@@ -465,7 +484,7 @@ write_config() {
 		echo "GPU_AUDIO_PCI=\"${GPU_AUDIO_PCI:-}\""
 		echo "GPU_AUDIO_IDS=\"${GPU_AUDIO_IDS:-}\""
 		echo "GPU_IOMMU_GROUP=\"${GPU_IOMMU_GROUP:-}\""
-		echo "LOOKING_GLASS_SIZE=\"${LOOKING_GLASS_SIZE:-32}\""
+		echo "LOOKING_GLASS_SIZE=\"${LOOKING_GLASS_SIZE:-64}\""
 	} >"$config_file"
 
 	fmtr::log "Configuration saved to: $config_file"

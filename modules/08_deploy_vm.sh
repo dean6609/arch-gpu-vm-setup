@@ -42,8 +42,6 @@ check_dependencies() {
 	fi
 }
 
-
-
 generate_mac_address() {
 	local oui="b0:4e:26"
 	local mac="$oui:$(printf '%02x:%02x:%02x' $((RANDOM % 256)) $((RANDOM % 256)) $((RANDOM % 256)))"
@@ -185,10 +183,18 @@ create_libvirt_xml() {
 
 	local gpu_section=""
 	if [[ -n "$GPU_PCI_ADDR" ]]; then
+		local rom_section=""
+		# Check for VBIOS dump (required for AMD GPUs to fix Error Code 43)
+		local vbios_path="/opt/gpu-vm-setup/firmware/rx580.rom"
+		if [[ -f "$vbios_path" ]]; then
+			rom_section="
+      <rom file=\"${vbios_path}\"/>"
+		fi
 		gpu_section="    <hostdev mode=\"subsystem\" type=\"pci\" managed=\"yes\">
+      <driver name=\"vfio\"/>
       <source>
         <address domain=\"0x${gpu_pci_domain}\" bus=\"0x${gpu_pci_bus}\" slot=\"0x${gpu_pci_slot}\" function=\"0x${gpu_pci_func}\"/>
-      </source>
+      </source>${rom_section}
     </hostdev>"
 	fi
 
@@ -214,11 +220,15 @@ create_libvirt_xml() {
     <topology sockets="${cpu_sockets}" dies="1" clusters="1" cores="${cpu_cores}" threads="${cpu_threads}"/>
     <cache mode="passthrough"/>
     <maxphysaddr mode="passthrough"/>
-    <feature policy="require" name="topoext"/>
+$(if [[ "$CPU_VENDOR_ID" == "AuthenticAMD" ]]; then
+		echo '    <feature policy="require" name="topoext"/>'
+	fi)
     <feature policy="disable" name="hypervisor"/>
     <feature policy="disable" name="ssbd"/>
-    <feature policy="disable" name="amd-ssbd"/>
-    <feature policy="disable" name="virt-ssbd"/>
+$(if [[ "$CPU_VENDOR_ID" == "AuthenticAMD" ]]; then
+		echo '    <feature policy="disable" name="amd-ssbd"/>'
+		echo '    <feature policy="disable" name="virt-ssbd"/>'
+	fi)
   </cpu>
   <os>
     <type arch="x86_64" machine="pc-q35-10.2">hvm</type>
@@ -288,8 +298,13 @@ ${gpu_audio_section}
     </tpm>
     <memballoon model="none"/>
     <video>
-      <model type="none"/>
+      <model type="vga"/>
     </video>
+    <graphics type="spice" autoport="yes"/>
+    <audio id="1" type="spice"/>
+    <sound model="ich9">
+      <audio id="1"/>
+    </sound>
   </devices>
 EOF
 
