@@ -153,6 +153,18 @@ install_kvmfr_module() {
 	$ROOT_ESC mkdir -p "$dkms_dir"
 	$ROOT_ESC cp -r "$module_src"/* "$dkms_dir/"
 
+	# Kernel 6.6+ changed MODULE_IMPORT_NS to require quoted strings.
+	# B6 source uses the old unquoted form → patch it automatically.
+	local kernel_major kernel_minor
+	kernel_major=$(uname -r | cut -d. -f1)
+	kernel_minor=$(uname -r | cut -d. -f2)
+	if (( kernel_major > 6 || ( kernel_major == 6 && kernel_minor >= 6 ) )); then
+		fmtr::info "Patching kvmfr.c MODULE_IMPORT_NS for kernel >= 6.6..."
+		$ROOT_ESC sed -i \
+			's/MODULE_IMPORT_NS(\([A-Z_]*\));/MODULE_IMPORT_NS("\1");/g' \
+			"$dkms_dir/kvmfr.c" 2>>/dev/null || true
+	fi
+
 	# Create DKMS configuration
 	$ROOT_ESC tee "$dkms_dir/dkms.conf" >/dev/null <<'EOF'
 PACKAGE_NAME="kvmfr"
@@ -171,18 +183,24 @@ EOF
 		fmtr::warn "DKMS add failed (may already exist)"
 	}
 
+	# Note: pipe to tee swallows exit codes, so capture separately.
+	local dkms_rc
 	fmtr::info "Building kvmfr module for kernel $current_kernel..."
-	if $ROOT_ESC dkms build kvmfr/B6 -k "$current_kernel" 2>&1 | tee -a "$LOG_FILE"; then
+	$ROOT_ESC dkms build kvmfr/B6 -k "$current_kernel" 2>&1 | tee -a "$LOG_FILE"
+	dkms_rc=${PIPESTATUS[0]}
+	if (( dkms_rc == 0 )); then
 		fmtr::log "KVMFR module built successfully"
 	else
-		fmtr::error "DKMS build failed"
+		fmtr::error "DKMS build failed (see $LOG_FILE for details)"
 		fmtr::info "Attempting manual compilation..."
 		install_kvmfr_module_manual
 		return $?
 	fi
 
 	fmtr::info "Installing kvmfr module..."
-	if $ROOT_ESC dkms install kvmfr/B6 -k "$current_kernel" 2>&1 | tee -a "$LOG_FILE"; then
+	$ROOT_ESC dkms install kvmfr/B6 -k "$current_kernel" 2>&1 | tee -a "$LOG_FILE"
+	dkms_rc=${PIPESTATUS[0]}
+	if (( dkms_rc == 0 )); then
 		fmtr::log "KVMFR module installed via DKMS for $current_kernel"
 	else
 		fmtr::error "DKMS install failed"
@@ -199,13 +217,25 @@ install_kvmfr_module_manual() {
 	local current_kernel
 	current_kernel=$(uname -r)
 
+	# Kernel 6.6+ patch (in case DKMS copy missed it)
+	local kernel_major kernel_minor
+	kernel_major=$(uname -r | cut -d. -f1)
+	kernel_minor=$(uname -r | cut -d. -f2)
+	if (( kernel_major > 6 || ( kernel_major == 6 && kernel_minor >= 6 ) )); then
+		sed -i 's/MODULE_IMPORT_NS(\([A-Z_]*\));/MODULE_IMPORT_NS("\1");/g' \
+			"$module_src/kvmfr.c" 2>/dev/null || true
+	fi
+
 	cd "$module_src" || return 1
 
-	$ROOT_ESC make -C "/lib/modules/${current_kernel}/build" M="$(pwd)" modules 2>&1 | tee -a "$LOG_FILE" || {
+	local make_rc
+	$ROOT_ESC make -C "/lib/modules/${current_kernel}/build" M="$(pwd)" modules 2>&1 | tee -a "$LOG_FILE"
+	make_rc=${PIPESTATUS[0]}
+	if (( make_rc != 0 )); then
 		fmtr::error "Manual module build failed"
 		cd - >/dev/null
 		return 1
-	}
+	fi
 
 	if [[ -f "$module_src/kvmfr.ko" ]]; then
 		$ROOT_ESC mkdir -p "/lib/modules/${current_kernel}/extra"
