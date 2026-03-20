@@ -302,10 +302,12 @@ gaming_menu() {
 			fmtr::info "Switch your monitor to ${MONITOR_DGPU} to play."
 			echo ""
 			printf '  %b[2]%b %s\n' "$TEXT_BRIGHT_RED" "$RESET" "Stop Gaming Mode"
+			printf '  %b[3]%b %s\n' "$TEXT_BRIGHT_CYAN" "$RESET" "Re-run Setup Wizard"
 			printf '  %b[0]%b %s\n\n' "$TEXT_BRIGHT_YELLOW" "$RESET" "Exit (leave gaming active)"
 		else
 			printf '  %b[1]%b %s\n' "$TEXT_BRIGHT_GREEN" "$RESET" "Start Gaming Mode"
 			printf '  %b[2]%b %s\n' "$TEXT_BRIGHT_RED" "$RESET" "Stop Gaming Mode (Emergency)"
+			printf '  %b[3]%b %s\n' "$TEXT_BRIGHT_CYAN" "$RESET" "Run Setup Wizard"
 			echo ""
 			printf '  %b[0]%b %s\n\n' "$TEXT_BRIGHT_YELLOW" "$RESET" "Exit"
 		fi
@@ -325,6 +327,12 @@ gaming_menu() {
 			;;
 		2)
 			stop_gaming
+			;;
+		3)
+			fmtr::box_text "Gaming Mode Setup"
+			"${SCRIPT_DIR}/gaming-mode-setup.sh"
+			# Refresh configuration after setup
+			source "$GAMING_MODE_CONF"
 			;;
 		0)
 			fmtr::log "Exiting"

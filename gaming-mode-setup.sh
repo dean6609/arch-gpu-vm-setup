@@ -386,6 +386,25 @@ if [[ "$has_gaming_bind" == false && -n "$keybind_file" ]]; then
 fi
 
 # =============================================================================
+# SECTION 10.5: Sudoers Configuration
+# =============================================================================
+
+fmtr::info "Configuring passwordless sudo for gaming-mode-helper.sh..."
+sudoers_file="/etc/sudoers.d/gaming-mode"
+helper_path="${SCRIPT_DIR}/gaming-mode-helper.sh"
+
+sudo_cmd="cat >$sudoers_file <<EOF
+${USER} ALL=(root) NOPASSWD: ${helper_path} *
+EOF
+"
+if sudo bash -c "$sudo_cmd"; then
+	sudo chmod 440 "$sudoers_file"
+	fmtr::log "Sudoers configured: $sudoers_file"
+else
+	fmtr::error "Failed to configure sudoers. You may need to enter password for some operations."
+fi
+
+# =============================================================================
 # SECTION 11: Install Systemd Service
 # =============================================================================
 

@@ -11,13 +11,13 @@
 | | |
 |---|---|
 | 🔒 | **Educational purposes only.** This project is for learning about Linux virtualization and GPU passthrough. |
-| ⚠️ | **Author is not responsible** for any damage, data loss, or account bans that may result from using this software. |
-| 📸 | **This is a working snapshot** for the author's specific hardware configuration. It is tested and functional on the author's system only. |
-| 🚫 | **No new versions will be released.** This version is final and functional for the creator. |
-| 🍴 | **Users can fork and adapt** with AI assistance for their specific system hardware and requirements. |
-| ⚖️ | **GPU passthrough and anti-cheat evasion may violate game Terms of Service** and result in account bans. Use at your own risk. |
-| ⚠️ | **Tested with linux-zen 6.19.8** — future kernel versions may break VFIO, Looking Glass, or GPU binding. |
-| 🔧 | **No maintenance or updates planned.** If something breaks with newer versions, use AI assistance to adapt, specifying these exact versions as your working baseline. |
+| ⚠️ | **Author is not responsible** for any damage, data loss, or account bans. |
+| 📸 | **Version 1.5 Released.** Integrated stable Evdev input and TCP Audio bridge. |
+| 🚀 | **Modernized Architecture:** Moving towards native input/audio, removing Looking Glass overhead. |
+| 🍴 | **Users can fork and adapt** with AI assistance for their specific system. |
+| ⚖️ | **Use at your own risk.** Anti-cheat evasion may violate game Terms of Service. |
+| ⚠️ | **Tested with linux-zen 6.19.8** — current working baseline. |
+| 🔧 | **Phase 1 Complete:** Stabilization and input/audio fixes finalized. |
 
 ---
 

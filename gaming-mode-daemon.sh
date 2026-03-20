@@ -223,13 +223,18 @@ daemon_start_gaming() {
 	# Step 8: Start VM
 	log "Step 8: Starting Windows VM..."
 	echo "active" >"${STATE_DIR}/state"
+	
+	# Create a TCP audio bridge on localhost to bypass UID/permission issues
+	# This is the most robust way to share audio without manual cookie hacks
+	pactl load-module module-native-protocol-tcp auth-ip-acl=127.0.0.1 &>/dev/null
+	
 	if ! virsh start "$VM_NAME" 2>>"${STATE_DIR}/log"; then
 		log "Failed to start VM - reverting"
 		daemon_revert
 		return
 	fi
-	log "VM started - waiting 40 seconds for boot..."
-	sleep 40
+	log "VM started - waiting 10 seconds for initialization..."
+	sleep 10
 
 	# Step 9: Setup kvmfr and launch Looking Glass
 	log "Step 9: Setting up Looking Glass"
@@ -372,6 +377,9 @@ daemon_revert() {
 	fi
 
 	echo "idle" >"${STATE_DIR}/state"
+	# Unload TCP audio module
+	pactl unload-module $(pactl list modules short | grep "module-native-protocol-tcp" | awk '{print $1}') &>/dev/null || true
+	
 	log "=== REVERT COMPLETE ==="
 }
 

@@ -107,10 +107,9 @@ main_menu() {
 			;;
 		G | g)
 			if [[ ! -f "${SCRIPT_DIR}/gaming-mode.conf" ]]; then
-				fmtr::box_text "Gaming Mode Setup"
 				./gaming-mode-setup.sh
-			else
-				fmtr::box_text "Gaming Mode"
+			fi
+			if [[ -f "${SCRIPT_DIR}/gaming-mode.conf" ]]; then
 				./gaming-mode.sh
 			fi
 			;;
