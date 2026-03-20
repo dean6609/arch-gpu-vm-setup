@@ -236,18 +236,6 @@ daemon_start_gaming() {
 	log "VM started - waiting 10 seconds for initialization..."
 	sleep 10
 
-	# Step 9: Setup kvmfr and launch Looking Glass
-	log "Step 9: Setting up Looking Glass"
-	sudo "${SCRIPT_DIR}/gaming-mode-helper.sh" setup_kvmfr "$GM_USER"
-
-	# Launch Looking Glass if available
-	if command -v looking-glass-client &>/dev/null; then
-		looking-glass-client 2>/dev/null &
-		log "Looking Glass launched (use Right Ctrl to capture/release input)"
-	else
-		log "looking-glass-client not found - skipping"
-	fi
-
 	log "=== GAMING MODE ACTIVE ==="
 	log "Switch your monitor input to ${MONITOR_DGPU} to play"
 	log "Use gaming-mode.sh option 2 to stop"

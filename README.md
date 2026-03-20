@@ -1,7 +1,7 @@
 # 🎮 arch-gpu-vm-setup
 
 > Automated GPU passthrough setup for Windows VM gaming on Arch Linux.  
-> Supports EasyAntiCheat (Fortnite ✅), Looking Glass, VFIO, patched QEMU/EDK2,  
+> Supports EasyAntiCheat (Fortnite ✅), VFIO, patched QEMU/EDK2,  
 > and dynamic GPU switching between host and VM without rebooting.
 
 ---
@@ -12,12 +12,20 @@
 |---|---|
 | 🔒 | **Educational purposes only.** This project is for learning about Linux virtualization and GPU passthrough. |
 | ⚠️ | **Author is not responsible** for any damage, data loss, or account bans. |
-| 📸 | **Version 1.5 Released.** Integrated stable Evdev input and TCP Audio bridge. |
-| 🚀 | **Modernized Architecture:** Moving towards native input/audio, removing Looking Glass overhead. |
 | 🍴 | **Users can fork and adapt** with AI assistance for their specific system. |
 | ⚖️ | **Use at your own risk.** Anti-cheat evasion may violate game Terms of Service. |
+
+---
+
+# Arch Linux GPU Passthrough Gaming Setup (v2.0)
+
+| Status | Details |
+| :--- | :--- |
+| 🚀 | **Version 2.0 Released.** Finalized native Evdev/Audio architecture. |
+| ✨ | **Looking Glass Removed:** No more secondary window or KVMFR overhead. |
+| 🎮 | **Seamless Input/Audio:** Direct Evdev passthrough and TCP Localhost Audio. |
 | ⚠️ | **Tested with linux-zen 6.19.8** — current working baseline. |
-| 🔧 | **Phase 1 Complete:** Stabilization and input/audio fixes finalized. |
+| ✅ | **Maintenance Mode:** This project is now considered stable and complete. |
 
 ---
 
@@ -29,31 +37,31 @@
 
 ---
 
-## 📸 Screenshots
+## 🖥️ Terminal Interface
 
-> Screenshots coming soon. The setup runs entirely in terminal via interactive menus.
-> 
-> **Main menu preview:**
-> ```
-> ╔══════════════════════════════════════════════╗
-> ║         >> GPU Passthrough Gaming <<         ║
-> ║              Arch Linux Edition              ║
-> ╚══════════════════════════════════════════════╝
-> 
->   [1]  Prerequisites Check
->   [2]  BIOS Configuration Guide
->   [3]  Virtualization Setup (QEMU/KVM/libvirt)
->   [4]  VFIO / GPU Passthrough Configuration
->   [5]  GPU Binding Management
->   [6]  Compile QEMU (with anti-detection patches)
->   [7]  Compile EDK2/OVMF (patched firmware)
->   [8]  Install Looking Glass
->   [9]  Deploy Windows VM
->   [10] Fortnite/EAC Specific Patches
->   [11] System Diagnostics
->   [G]  Gaming Mode
->   [0]  Exit
-> ```
+> The setup runs entirely in the terminal via interactive, user-friendly menus.
+
+**Main menu preview (v2.0):**
+```
+╔══════════════════════════════════════════════╗
+║         >> GPU Passthrough Gaming <<         ║
+║              Arch Linux Edition              ║
+╚══════════════════════════════════════════════╝
+
+  [1]  Prerequisites Check
+  [2]  BIOS Configuration Guide
+  [3]  Virtualization Setup (QEMU/KVM/libvirt)
+  [4]  VFIO / GPU Passthrough Configuration
+  [5]  GPU Binding Management
+  [6]  Compile QEMU (with anti-detection patches)
+  [7]  Compile EDK2/OVMF (patched firmware)
+  [8]  Deploy Windows VM
+  [9]  Fortnite/EAC Specific Patches
+  [10] System Diagnostics
+  [11] Uninstall Setup
+  [G]  Gaming Mode
+  [0]  Exit
+```
 
 ---
 
@@ -136,10 +144,6 @@ Using newer versions may or may not work — this project is not actively mainta
 | QEMU (compiled) | 10.2.0 | Compiled from source with patches |
 | QEMU (system) | 10.2.1-1 | Used as build dependency |
 | EDK2/OVMF | 202508-1 | System package for dependencies |
-| libvirt | 12.1.0-1 | |
-| virt-manager | 5.1.0-3 | |
-| swtpm | 0.10.1-1 | |
-| Looking Glass | B6 | Compiled from source |
 | Mesa | 26.0.2-1 | AMD GPU drivers |
 | vulkan-radeon | 26.0.2-1 | |
 | yay | 12.5.7 | AUR helper |
@@ -177,10 +181,10 @@ cd arch-gpu-vm-setup
 [5]  GPU Binding Management
 [6]  Compile QEMU (with anti-detection patches)
 [7]  Compile EDK2/OVMF (patched firmware)
-[8]  Install Looking Glass
-[9]  Deploy Windows VM
-[10] Fortnite/EAC Specific Patches
-[11] System Diagnostics
+[8]  Deploy Windows VM
+[9]  Fortnite/EAC Specific Patches
+[10] System Diagnostics
+[11] Uninstall Setup
 [G]  Gaming Mode
 ```
 
@@ -191,12 +195,8 @@ cd arch-gpu-vm-setup
 The gaming mode script handles automatic GPU switching between Linux and Windows VM:
 
 ```bash
-# First time setup (run once)
-./gaming-mode-setup.sh
-
-# Launch gaming mode
+# Launch gaming mode (Super+G also works)
 ./gaming-mode.sh
-# Or press Super+G (configured automatically by setup wizard)
 ```
 
 ### Gaming Mode Flow
@@ -206,37 +206,22 @@ The gaming mode script handles automatic GPU switching between Linux and Windows
 
 ---
 
-## 🖱️ Monitor Switching vs Looking Glass
+## 🖱️ Monitor Switching & Input Control (Evdev)
 
-This project supports **two methods** for using the Windows VM with your GPU:
+This project uses **physical monitor input switching** combined with **Evdev passthrough** for a native gaming experience:
 
-### Method 1: Physical Monitor Input Switching (Default)
-
-This project **intentionally uses physical monitor input switching** instead of Looking Glass window for the primary gaming experience:
-
-| Benefit | Explanation |
+| Feature | Details |
 |---------|-------------|
-| **Native refresh rates** | Use full 240Hz, 144Hz, 120Hz — not limited by Looking Glass frame rate |
-| **Lower latency** | Direct display output, no capture/streaming overhead |
-| **Better compatibility** | Some games run better with direct GPU output |
+| **Native Refresh Rates** | Use full 240Hz, 144Hz, 120Hz — no streaming overhead. |
+| **Zero-Latency Audio** | Native TCP bridge to host PipeWire/PulseAudio. |
+| **Seamless Input** | Use `Left Alt + Right Alt` to instantly toggle mouse/keyboard between Linux and Windows. |
 
 **How to use:**
-1. Start gaming mode: `./gaming-mode.sh`
-2. Switch your monitor's input to the dGPU output (DP or HDMI port on your graphics card)
-3. Play your games at native refresh rates
-4. When done, switch monitor input back to iGPU output (HDMI/DP on motherboard)
-5. Stop gaming mode to return GPU to Linux
-
-### Method 2: Looking Glass Window
-
-Looking Glass is also fully supported for those who prefer a windowed experience:
-
-**How to use:**
-1. Start gaming mode: `./gaming-mode.sh`
-2. Use the Looking Glass window on your Linux desktop
-3. **Capture/Release**: Press `Right Ctrl` (default escape key) to capture or release mouse/keyboard inside the Looking Glass window
-
-**Summary:** Both methods work. Physical switching gives better performance and native refresh rates. Looking Glass window is more convenient for streaming/multitasking.
+1. Start gaming mode: `./gaming-mode.sh` (or `Super+G`)
+2. Switch your monitor's input to the dGPU output.
+3. Your keyboard and mouse are automatically captured.
+4. **Capture/Release**: Press **both ALT keys** simultaneously to return your mouse to Linux.
+5. When done, stop gaming mode to return the GPU to Linux.
 
 ---
 
@@ -276,7 +261,6 @@ arch-gpu-vm-setup/
 │   ├── 04_gpu_bind.sh         # Dynamic GPU binding
 │   ├── 05_qemu_patched.sh     # Compile patched QEMU
 │   ├── 06_edk2_patched.sh     # Compile patched EDK2/OVMF
-│   ├── 07_looking_glass.sh    # Looking Glass installation
 │   ├── 08_deploy_vm.sh        # Windows VM deployment
 │   ├── 09_fortnite_patches.sh # EAC anti-detection checklist
 │   ├── 10_diagnostics.sh      # System diagnostics
@@ -312,13 +296,12 @@ This project is a working snapshot for specific hardware. To adapt it for your s
 2. **Use AI assistance** (Claude, ChatGPT, etc.) with this prompt as a starting point:
    > I want to adapt arch-gpu-vm-setup (https://github.com/dean6609/arch-gpu-vm-setup) for my system. My hardware is: [describe your CPU, GPUs, motherboard]. The verified working versions are listed in the README. What do I need to change for my specific setup?
 3. **Key files to adapt:**
-   - `gaming-mode-setup.sh` — run this wizard, it auto-detects most values
+   - `gaming-mode-setup.sh` — setup wizard (triggered automatically on first run)
    - `modules/03_vfio_setup.sh` — GPU PCI addresses are auto-detected
    - `modules/08_deploy_vm.sh` — CPU topology is auto-detected via lscpu
 4. **Common issues and where to look:**
    - AMD GPU Error Code 43 → VBIOS dump required (see Important Notes)
    - IOMMU groups mixed → use linux-zen with pcie_acs_override kernel parameter
-   - Looking Glass crash → try B6 instead of B7 (AMD GPUs known issue with B7)
    - Black screen after GPU switch → check UWSM env-hyprland WLR_DRM_DEVICES value
 
 ---
@@ -340,7 +323,6 @@ This project was built entirely with AI assistance (vibecoding). The author used
 
 ### 🛠️ Technologies
 
-- [Looking Glass](https://looking-glass.io/) — Low-latency VM display capture
 - [Dusky rice](https://github.com/dusklinux/dusky) — The Hyprland environment this project was built on
 - [VFIO community](https://vfio.blogspot.com/) — GPU passthrough documentation
 

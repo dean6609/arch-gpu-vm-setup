@@ -11,10 +11,13 @@ src/
 *.o
 *.so
 
-# Firmware dumps (user-specific)
-resources/firmware/
+# Firmware dumps and local resources (user-specific)
+resources/
 *.rom
 *.bin
+
+# AI Context files
+CONTEXTO_COMPLETO_ANTES_REFACTOR.md
 
 # Backup files
 *.bak

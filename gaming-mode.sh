@@ -168,6 +168,7 @@ start_gaming() {
 	fmtr::info "  3. After restart, switch your monitor input to HDMI/motherboard"
 	fmtr::info "  4. Open this menu again (Super+G or ./gaming-mode.sh) to confirm"
 	fmtr::info "  5. The VM will start automatically after confirmation"
+	fmtr::info "  6. Use two ALT keys to capture/release keyboard/mouse"
 	echo ""
 
 	if ! prmt::yes_or_no "$(fmtr::ask 'Proceed with starting gaming mode?')"; then

@@ -30,7 +30,6 @@ main_menu() {
 		"GPU Binding Management (vm/host/none)"
 		"Compile QEMU (with anti-detection patches)"
 		"Compile EDK2/OVMF (patched firmware)"
-		"Install Looking Glass"
 		"Deploy Windows VM"
 		"Fortnite/EAC Specific Patches"
 		"System Diagnostics"
@@ -87,14 +86,10 @@ main_menu() {
 			;;
 		8)
 			fmtr::box_text "${options[8]}"
-			./modules/07_looking_glass.sh
+			./modules/08_deploy_vm.sh
 			;;
 		9)
 			fmtr::box_text "${options[9]}"
-			./modules/08_deploy_vm.sh
-			;;
-		10)
-			fmtr::box_text "${options[10]}"
 			./modules/09_fortnite_patches.sh
 			;;
 		11)

@@ -38,14 +38,6 @@ case "$COMMAND" in
         modprobe vfio 2>/dev/null || true
         modprobe vfio_iommu_type1 2>/dev/null || true
         ;;
-    setup_kvmfr)
-        USER_NAME="$1"
-        modprobe kvmfr static_size_mb=64 2>/dev/null || true
-        sleep 1
-        if [[ -e /dev/kvmfr0 ]]; then
-            chown "${USER_NAME}:kvm" /dev/kvmfr0 2>/dev/null || true
-        fi
-        ;;
     *)
         echo "Unknown command"
         exit 1
