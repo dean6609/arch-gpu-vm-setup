@@ -127,8 +127,6 @@ select_gpu() {
 	local selected_gpu="${gpus[$((selection - 1))]}"
 	IFS='|' read -r GPU_PCI_ADDR GPU_VENDOR_ID GPU_DEVICE_ID GPU_NAME GPU_DRIVER_ORIGINAL <<<"$selected_gpu"
 
-	GPU_NAME=$(lspci -D -s "$GPU_PCI_ADDR" 2>/dev/null | sed 's/.* //')
-
 	export GPU_PCI_ADDR GPU_VENDOR_ID GPU_DEVICE_ID GPU_NAME GPU_DRIVER_ORIGINAL
 }
 

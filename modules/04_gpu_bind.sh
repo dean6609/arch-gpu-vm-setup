@@ -11,10 +11,20 @@ source "${SCRIPT_DIR}/utils.sh" || {
 	exit 1
 }
 
+HELPER="${SCRIPT_DIR}/gaming-mode-helper.sh"
+
 gpu_mode_vm() {
 	local pci_addr="$1"
 
 	fmtr::info "Binding GPU $pci_addr to vfio-pci (VM mode)..."
+
+	# Load vfio modules if not already loaded
+	if ! lsmod | grep -q vfio_pci; then
+		fmtr::info "Loading vfio-pci modules..."
+		sudo modprobe vfio-pci 2>/dev/null || true
+		sudo modprobe vfio 2>/dev/null || true
+		sudo modprobe vfio_iommu_type1 2>/dev/null || true
+	fi
 
 	local current_driver
 	current_driver=$(get_gpu_driver "$pci_addr")
@@ -25,11 +35,11 @@ gpu_mode_vm() {
 	fi
 
 	if [[ -e "/sys/bus/pci/devices/$pci_addr/driver" ]]; then
-		echo "$pci_addr" >/sys/bus/pci/devices/"$pci_addr"/driver/unbind 2>/dev/null || true
+		sudo "$HELPER" unbind_device "$pci_addr"
 	fi
 
-	echo "vfio-pci" >/sys/bus/pci/devices/"$pci_addr"/driver_override
-	echo "$pci_addr" >/sys/bus/pci/drivers/vfio-pci/bind 2>/dev/null &&
+	echo "vfio-pci" | sudo tee "/sys/bus/pci/devices/$pci_addr/driver_override" >/dev/null 2>&1
+	echo "$pci_addr" | sudo tee "/sys/bus/pci/drivers/vfio-pci/bind" >/dev/null 2>&1 &&
 		fmtr::log "GPU bound to vfio-pci" ||
 		fmtr::error "Failed to bind GPU to vfio-pci"
 
@@ -55,11 +65,11 @@ gpu_mode_vm() {
 			dev_driver=$(get_gpu_driver "$dev")
 
 			if [[ -n "$dev_driver" && "$dev_driver" != "vfio-pci" ]]; then
-				echo "$dev" >/sys/bus/pci/devices/"$dev"/driver/unbind 2>/dev/null || true
+				sudo "$HELPER" unbind_device "$dev"
 			fi
 
-			echo "vfio-pci" >/sys/bus/pci/devices/"$dev"/driver_override 2>/dev/null || true
-			echo "$dev" >/sys/bus/pci/drivers/vfio-pci/bind 2>/dev/null || true
+			echo "vfio-pci" | sudo tee "/sys/bus/pci/devices/$dev/driver_override" >/dev/null 2>&1 || true
+			echo "$dev" | sudo tee "/sys/bus/pci/drivers/vfio-pci/bind" >/dev/null 2>&1 || true
 			fmtr::log "Bound companion device: $dev"
 		done < <(get_iommu_group_devices "$iommu_group")
 	fi
@@ -73,16 +83,15 @@ gpu_mode_host() {
 
 	fmtr::info "Binding GPU $pci_addr to $original_driver (host mode)..."
 
-	echo "$pci_addr" >/sys/bus/pci/devices/"$pci_addr"/driver/unbind 2>/dev/null || true
-	# CRITICAL: use echo -n to clear driver_override, NOT echo ""
-	echo -n >/sys/bus/pci/devices/"$pci_addr"/driver_override 2>/dev/null || true
+	sudo "$HELPER" unbind_device "$pci_addr"
+	sudo "$HELPER" clear_override "$pci_addr"
 
 	if [[ "$original_driver" == "nvidia" ]]; then
-		modprobe nvidia 2>/dev/null || fmtr::warn "Failed to load NVIDIA driver"
+		sudo modprobe nvidia 2>/dev/null || fmtr::warn "Failed to load NVIDIA driver"
 	fi
 
 	if [[ -e "/sys/bus/pci/drivers/${original_driver}/bind" ]]; then
-		echo "$pci_addr" >/sys/bus/pci/drivers/"$original_driver"/bind 2>/dev/null &&
+		echo "$pci_addr" | sudo tee "/sys/bus/pci/drivers/${original_driver}/bind" >/dev/null 2>&1 &&
 			fmtr::log "GPU bound to $original_driver" ||
 			fmtr::error "Failed to bind GPU to $original_driver"
 	else
@@ -109,8 +118,8 @@ gpu_mode_host() {
 			dev_driver=$(get_gpu_driver "$dev")
 
 			if [[ -n "$dev_driver" ]]; then
-				echo "$dev" >/sys/bus/pci/devices/"$dev"/driver/unbind 2>/dev/null || true
-				echo -n >/sys/bus/pci/devices/"$dev"/driver_override 2>/dev/null || true
+				sudo "$HELPER" unbind_device "$dev"
+				sudo "$HELPER" clear_override "$dev"
 			fi
 		done < <(get_iommu_group_devices "$iommu_group")
 	fi
@@ -123,8 +132,8 @@ gpu_mode_none() {
 
 	fmtr::info "Unbinding GPU $pci_addr (power saving mode)..."
 
-	echo "$pci_addr" >/sys/bus/pci/devices/"$pci_addr"/driver/unbind 2>/dev/null || true
-	echo -n >/sys/bus/pci/devices/"$pci_addr"/driver_override 2>/dev/null || true
+	sudo "$HELPER" unbind_device "$pci_addr"
+	sudo "$HELPER" clear_override "$pci_addr"
 
 	local iommu_group
 	iommu_group=$(get_iommu_group "$pci_addr")
@@ -142,8 +151,8 @@ gpu_mode_none() {
 				continue
 			fi
 
-			echo "$dev" >/sys/bus/pci/devices/"$dev"/driver/unbind 2>/dev/null || true
-			echo -n >/sys/bus/pci/devices/"$dev"/driver_override 2>/dev/null || true
+			sudo "$HELPER" unbind_device "$dev"
+			sudo "$HELPER" clear_override "$dev"
 		done < <(get_iommu_group_devices "$iommu_group")
 	fi
 
@@ -171,19 +180,49 @@ show_current_status() {
 main() {
 	fmtr::box_text " GPU Binding Management "
 
-	if [[ -z "$GPU_PCI_ADDR" ]]; then
-		fmtr::warn "No GPU configured. Run VFIO setup first."
-		read_config
+	# Detect all GPUs
+	local -a gpus=()
+	while IFS='|' read -r bdf vendor device desc driver; do
+		[[ -n "$bdf" ]] || continue
+		gpus+=("$bdf|$vendor|$device|$desc|$driver")
+	done < <(detect_gpus)
+
+	if [[ ${#gpus[@]} -eq 0 ]]; then
+		fmtr::error "No GPUs detected!"
+		return 1
 	fi
 
 	show_current_status
 
+	# GPU selection
+	local target_gpu target_driver
+	if [[ ${#gpus[@]} -eq 1 ]]; then
+		IFS='|' read -r target_gpu _ _ _ target_driver <<<"${gpus[0]}"
+		fmtr::info "Using GPU: $target_gpu"
+	else
+		echo ""
+		fmtr::info "Select GPU to operate on:"
+		for ((i = 0; i < ${#gpus[@]}; i++)); do
+			IFS='|' read -r bdf _ _ desc driver <<<"${gpus[i]}"
+			printf '  [%d] %s (%s) - %s\n' "$((i + 1))" "$bdf" "$desc" "${driver:-none}"
+		done
+		local gpu_sel
+		read -rp "$(fmtr::ask_inline 'GPU [1-9]: ')" gpu_sel
+		if [[ "$gpu_sel" =~ ^[0-9]+$ ]] && ((gpu_sel >= 1 && gpu_sel <= ${#gpus[@]})); then
+			IFS='|' read -r target_gpu _ _ _ target_driver <<<"${gpus[$((gpu_sel - 1))]}"
+		else
+			fmtr::error "Invalid selection"
+			return 1
+		fi
+	fi
+
+	echo ""
+	fmtr::info "Operating on: $target_gpu (current: ${target_driver:-none})"
 	echo ""
 	fmtr::info "Available actions:"
 	echo "  [1] Bind GPU to vfio-pci (VM mode)"
 	echo "  [2] Bind GPU to original driver (Host mode)"
 	echo "  [3] Unbind GPU (None/power saving)"
-	echo "  [4] Configure persistent VFIO mode"
 	echo "  [0] Back to main menu"
 
 	local choice
@@ -191,29 +230,18 @@ main() {
 
 	case $choice in
 	1)
-		if [[ -n "$GPU_PCI_ADDR" ]]; then
-			gpu_mode_vm "$GPU_PCI_ADDR"
-		else
-			fmtr::error "No GPU configured"
-		fi
+		gpu_mode_vm "$target_gpu"
 		;;
 	2)
-		if [[ -n "$GPU_PCI_ADDR" ]]; then
-			gpu_mode_host "$GPU_PCI_ADDR" "${GPU_DRIVER_ORIGINAL:-nvidia}"
-		else
-			fmtr::error "No GPU configured"
+		local driver="${GPU_DRIVER_ORIGINAL:-amdgpu}"
+		# If target is not the configured dGPU, use its own driver
+		if [[ "$target_gpu" != "$GPU_PCI_ADDR" && -n "$target_driver" && "$target_driver" != "vfio-pci" ]]; then
+			driver="$target_driver"
 		fi
+		gpu_mode_host "$target_gpu" "$driver"
 		;;
 	3)
-		if [[ -n "$GPU_PCI_ADDR" ]]; then
-			gpu_mode_none "$GPU_PCI_ADDR"
-		else
-			fmtr::error "No GPU configured"
-		fi
-		;;
-	4)
-		fmtr::info "Persistent VFIO mode keeps GPU bound after reboot"
-		fmtr::warn "This feature requires additional setup - coming soon"
+		gpu_mode_none "$target_gpu"
 		;;
 	0)
 		return

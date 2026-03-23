@@ -26,6 +26,8 @@ source "$GAMING_MODE_CONF"
 readonly VM_NAME="${GM_VM_NAME:-WindowsVM}"
 readonly GPU_PCI="${GM_GPU_PCI}"
 readonly GPU_AUDIO_PCI="${GM_GPU_AUDIO_PCI}"
+readonly IGPU_PCI="${GM_IGPU_PCI:-0000:08:00.0}"
+readonly IGPU_AUDIO_PCI="${GM_IGPU_AUDIO_PCI:-0000:08:00.1}"
 readonly DRM_IGPU="${GM_DRM_IGPU}"
 readonly DRM_DGPU="${GM_DRM_DGPU}"
 readonly MONITOR_IGPU="${GM_MONITOR_IGPU}"
@@ -109,6 +111,51 @@ safe_update_env() {
 	fi
 }
 
+# Restart Hyprland via UWSM (pkill doesn't work because Restart=no in systemd service)
+restart_hyprland() {
+	local context="$1"
+	log "Restarting Hyprland ($context)..."
+
+	# Stop cleanly via UWSM
+	if command -v uwsm &>/dev/null; then
+		uwsm stop 2>/dev/null || true
+	else
+		pkill -x Hyprland 2>/dev/null || true
+	fi
+
+	# Wait for Hyprland to fully stop
+	for i in $(seq 1 15); do
+		pgrep -x Hyprland &>/dev/null || break
+		sleep 1
+	done
+
+	systemctl --user reset-failed 2>/dev/null || true
+
+	# Wait for UWSM to auto-restart Hyprland (picks up new env vars)
+	for i in $(seq 1 20); do
+		pgrep -x Hyprland &>/dev/null && break
+		sleep 1
+	done
+
+	if pgrep -x Hyprland &>/dev/null; then
+		log "Hyprland restarted ($context, PID $(pgrep -x Hyprland))"
+		return 0
+	else
+		log "WARNING: Hyprland did not auto-restart ($context), trying manual start..."
+		if command -v uwsm &>/dev/null; then
+			uwsm start hyprland.desktop 2>/dev/null &
+			sleep 5
+		fi
+		if pgrep -x Hyprland &>/dev/null; then
+			log "Hyprland started manually ($context)"
+			return 0
+		else
+			log "CRITICAL: Cannot restart Hyprland ($context)"
+			return 1
+		fi
+	fi
+}
+
 # =============================================================================
 # Start Gaming Mode
 # =============================================================================
@@ -120,7 +167,7 @@ daemon_start_gaming() {
 	log "Verifying preconditions..."
 
 	local vm_state
-	vm_state=$(virsh domstate "$VM_NAME" 2>/dev/null)
+	vm_state=$(virsh domstate "$VM_NAME")
 	if [[ "$vm_state" != "shut off" ]]; then
 		log "ERROR: VM must be shut off (current: $vm_state)"
 		echo "idle" >"${STATE_DIR}/state"
@@ -160,19 +207,53 @@ daemon_start_gaming() {
 	sleep 1
 	log "VFIO modules loaded"
 
-	# Step 4: Restart Hyprland (UWSM will restart it on iGPU)
-	log "Step 4: Killing Hyprland to free dGPU - UWSM will restart it on iGPU..."
-	pkill -x Hyprland 2>/dev/null || true
-	log "Waiting for Hyprland to release dGPU..."
-	sleep 8
-	
-	# Clear failed units caused by killing the compositor abruptly
-	systemctl --user reset-failed 2>/dev/null || true
+	# Step 3.5: Unbind iGPU from vfio-pci and bind to amdgpu for Hyprland
+	igpu_driver=$(readlink "/sys/bus/pci/devices/${IGPU_PCI}/driver" 2>/dev/null | xargs basename 2>/dev/null || echo "none")
+	if [[ "$igpu_driver" != "amdgpu" ]]; then
+		log "Step 3.5: Moving iGPU ($IGPU_PCI) from $igpu_driver to amdgpu"
+		sudo "${SCRIPT_DIR}/gaming-mode-helper.sh" unbind_device "$IGPU_PCI"
+		sleep 1
+		sudo "${SCRIPT_DIR}/gaming-mode-helper.sh" clear_override "$IGPU_PCI"
+		sleep 1
+		sudo "${SCRIPT_DIR}/gaming-mode-helper.sh" bind_gpu "$IGPU_PCI" "amdgpu"
+		sleep 2
+		# Verify
+		local new_igpu_driver
+		new_igpu_driver=$(readlink "/sys/bus/pci/devices/${IGPU_PCI}/driver" 2>/dev/null | xargs basename 2>/dev/null || echo "none")
+		log "iGPU driver: $igpu_driver -> $new_igpu_driver"
+		# Also move iGPU audio companion
+		if [[ -n "$IGPU_AUDIO_PCI" ]]; then
+			igpu_audio_driver=$(readlink "/sys/bus/pci/devices/${IGPU_AUDIO_PCI}/driver" 2>/dev/null | xargs basename 2>/dev/null || echo "none")
+			if [[ "$igpu_audio_driver" != "snd_hda_intel" ]]; then
+				sudo "${SCRIPT_DIR}/gaming-mode-helper.sh" unbind_device "$IGPU_AUDIO_PCI"
+				sleep 1
+				sudo "${SCRIPT_DIR}/gaming-mode-helper.sh" clear_override "$IGPU_AUDIO_PCI"
+				sleep 1
+				sudo "${SCRIPT_DIR}/gaming-mode-helper.sh" bind_gpu "$IGPU_AUDIO_PCI" "snd_hda_intel"
+				log "iGPU audio companion ($IGPU_AUDIO_PCI) moved to snd_hda_intel"
+			fi
+		fi
+		# Wait for DRM device to appear
+		for i in $(seq 1 10); do
+			[[ -e "$DRM_IGPU" ]] && break
+			sleep 1
+		done
+		if [[ -e "$DRM_IGPU" ]]; then
+			log "iGPU DRM device $DRM_IGPU is ready"
+		else
+			log "WARNING: iGPU DRM device $DRM_IGPU not found after bind"
+		fi
+	fi
+
+	# Step 4: Restart Hyprland on iGPU via UWSM
+	if ! restart_hyprland "start-iGPU"; then
+		log "CRITICAL: Cannot start Hyprland on iGPU - reverting"
+		daemon_revert
+		return 1
+	fi
 
 	# Step 5: Bind dGPU to vfio-pci
 	log "Step 5: Binding dGPU to vfio-pci"
-	log "Releasing VT consoles from GPU"
-	release_console
 
 	if ! safe_gpu_bind "$GPU_PCI" "vfio-pci"; then
 		log "FAILED to bind dGPU to vfio-pci - reverting"
@@ -183,6 +264,10 @@ daemon_start_gaming() {
 	if [[ -n "$GPU_AUDIO_PCI" ]]; then
 		safe_gpu_bind "$GPU_AUDIO_PCI" "vfio-pci" || true
 	fi
+
+	# Release VT consoles AFTER dGPU is on vfio-pci (avoids disrupting iGPU's amdgpu)
+	log "Releasing VT consoles from GPU"
+	release_console
 
 	log "Hyprland recovery wait complete"
 	sleep 7
@@ -223,11 +308,31 @@ daemon_start_gaming() {
 	# Step 8: Start VM
 	log "Step 8: Starting Windows VM..."
 	echo "active" >"${STATE_DIR}/state"
-	
+
+	# Verify Hyprland is still running on iGPU before starting VM
+	if ! pgrep -x Hyprland &>/dev/null; then
+		log "WARNING: Hyprland is not running! Attempting restart on iGPU..."
+		safe_update_env "$UWSM_ENV" "WLR_DRM_DEVICES" "${DRM_IGPU}"
+		safe_update_env "$UWSM_ENV" "AQ_DRM_DEVICES" "${DRM_IGPU}"
+		if ! restart_hyprland "pre-VM-check"; then
+			log "CRITICAL: Cannot start Hyprland on iGPU - reverting"
+			daemon_revert
+			return 1
+		fi
+	fi
+
+	# Verify iGPU DRM device is accessible
+	if [[ -n "$DRM_IGPU" && ! -e "$DRM_IGPU" ]]; then
+		log "WARNING: iGPU DRM device $DRM_IGPU not found"
+		log "Current iGPU driver: $(readlink /sys/bus/pci/devices/${IGPU_PCI}/driver 2>/dev/null | xargs basename 2>/dev/null || echo 'none')"
+	fi
+
+	log "Hyprland running (PID $(pgrep -x Hyprland)), iGPU DRM: $DRM_IGPU"
+
 	# Create a TCP audio bridge on localhost to bypass UID/permission issues
 	# This is the most robust way to share audio without manual cookie hacks
 	pactl load-module module-native-protocol-tcp auth-ip-acl=127.0.0.1 &>/dev/null
-	
+
 	if ! virsh start "$VM_NAME" 2>>"${STATE_DIR}/log"; then
 		log "Failed to start VM - reverting"
 		daemon_revert
@@ -275,10 +380,10 @@ daemon_stop_gaming() {
 	if [[ -n "$GPU_AUDIO_PCI" ]]; then
 		safe_gpu_bind "$GPU_AUDIO_PCI" "$GPU_AUDIO_ORIGINAL_DRIVER" || true
 	fi
-	
+
 	log "Binding VT consoles back to GPU"
 	bind_console
-	
+
 	log "GPU restored to $GPU_ORIGINAL_DRIVER"
 
 	# Step 3: Update UWSM env back to dGPU
@@ -292,26 +397,7 @@ daemon_stop_gaming() {
 	}
 
 	# Step 5: Restart Hyprland on dGPU
-	log "Step 5: Restarting Hyprland on dGPU..."
-	pkill -x Hyprland 2>/dev/null || true
-	sleep 15
-
-	# Step 6: Verify Hyprland restarted
-	local attempts=0
-	while ((attempts < 10)); do
-		pgrep -x Hyprland &>/dev/null && break
-		sleep 2
-		((attempts++))
-	done
-
-	if pgrep -x Hyprland &>/dev/null; then
-		log "Hyprland restarted successfully on dGPU"
-		log "Switch your monitor input back to ${MONITOR_DGPU} for ${HZ_DGPU}Hz"
-	else
-		log "WARNING: Hyprland may not have restarted"
-		log "If screen is black, switch monitor to ${MONITOR_DGPU}"
-		log "Hyprland should restart automatically via UWSM"
-	fi
+	restart_hyprland "stop-dGPU"
 
 	echo "idle" >"${STATE_DIR}/state"
 	log "=== GAMING MODE STOPPED ==="
@@ -346,28 +432,12 @@ daemon_revert() {
 	echo "monitor = ${MONITOR_DGPU},${RESOLUTION}@${HZ_DGPU},0x0,1" >"$MONITORS_CONF" 2>/dev/null || true
 
 	# Restart Hyprland
-	log "Restarting Hyprland on dGPU..."
-	pkill -x Hyprland 2>/dev/null || true
-	sleep 15
-
-	# Verify
-	local attempts=0
-	while ((attempts < 10)); do
-		pgrep -x Hyprland &>/dev/null && break
-		sleep 2
-		((attempts++))
-	done
-
-	if pgrep -x Hyprland &>/dev/null; then
-		log "Hyprland restarted on dGPU"
-	else
-		log "WARNING: Hyprland may not have restarted - check monitor input"
-	fi
+	restart_hyprland "revert-dGPU"
 
 	echo "idle" >"${STATE_DIR}/state"
 	# Unload TCP audio module
 	pactl unload-module $(pactl list modules short | grep "module-native-protocol-tcp" | awk '{print $1}') &>/dev/null || true
-	
+
 	log "=== REVERT COMPLETE ==="
 }
 

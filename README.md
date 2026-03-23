@@ -17,13 +17,14 @@
 
 ---
 
-# Arch Linux GPU Passthrough Gaming Setup (v2.0)
+# Arch Linux GPU Passthrough Gaming Setup (v2.1)
 
 | Status | Details |
 | :--- | :--- |
-| 🚀 | **Version 2.0 Released.** Finalized native Evdev/Audio architecture. |
-| ✨ | **Looking Glass Removed:** No more secondary window or KVMFR overhead. |
-| 🎮 | **Seamless Input/Audio:** Direct Evdev passthrough and TCP Localhost Audio. |
+| 🚀 | **Version 2.1 Released.** Major stability fixes, VM anti-detection hardening, and new modules. |
+| 🎮 | **Dual-ALT Input Toggle Fixed:** Keyboard + mouse toggle together via `grab_all=on`. |
+| 🛡️ | **VM Anti-Detection Hardened:** SMBIOS spoofing, Hyper-V enlightenments, EAC-compatible config. |
+| 🌐 | **New Module:** VirtIO Network Driver for full 1Gbps VM networking. |
 | ⚠️ | **Tested with linux-zen 6.19.8** — current working baseline. |
 | ✅ | **Maintenance Mode:** This project is now considered stable and complete. |
 
@@ -41,7 +42,26 @@
 
 > The setup runs entirely in the terminal via interactive, user-friendly menus.
 
-**Main menu preview (v2.0):**
+### v2.1 Changelog
+
+| Component | Change |
+|-----------|--------|
+| `gaming-mode-daemon.sh` | Fixed Hyprland restart: `uwsm stop` instead of `pkill` (UWSM service has `Restart=no`). |
+| `gaming-mode-daemon.sh` | Added `restart_hyprland()` helper used in start/stop/revert flows. |
+| `gaming-mode-daemon.sh` | iGPU explicitly bound to `amdgpu` via helper script (was left driverless after vfio-pci unbind). |
+| `gaming-mode-helper.sh` | Added `unbind_device`, `clear_override` commands for NOPASSWD sysfs writes. |
+| `gaming-mode-setup.sh` | Evdev injection via temp file (fixes bash escaping in heredoc). `-object input-linux` with `grab_all=on`. |
+| `gaming-mode-setup.sh` | Audio driver detection ignores `vfio-pci` (defaults to `snd_hda_intel`). |
+| `gaming-mode-setup.sh` | Systemd service: `ExecStartPre=mkdir`, stdout to `journal` (fixes duplicate logs). |
+| `modules/04_gpu_bind.sh` | Added `modprobe vfio-pci` before bind (fixes hang). GPU selection menu. |
+| `modules/08_deploy_vm.sh` | SMBIOS spoofing (MSI B550 TOMAHAWK) + Hyper-V enlightenments for anti-detection. |
+| `modules/07_virtio_network.sh` | **New module:** VirtIO driver setup for 1Gbps VM networking. |
+| `main.sh` | Added option 9: VirtIO Network Driver. Menu now [0-13, G]. |
+| `config.conf` | Fixed GPU mapping (dGPU/iGPU was swapped). |
+
+---
+
+**Main menu preview (v2.1):**
 ```
 ╔══════════════════════════════════════════════╗
 ║         >> GPU Passthrough Gaming <<         ║
@@ -56,9 +76,10 @@
   [6]  Compile QEMU (with anti-detection patches)
   [7]  Compile EDK2/OVMF (patched firmware)
   [8]  Deploy Windows VM
-  [9]  Fortnite/EAC Specific Patches
-  [10] System Diagnostics
-  [11] Uninstall Setup
+  [9]  VirtIO Network Driver (improve VM network speed)
+  [10] Fortnite/EAC Specific Patches
+  [11] System Diagnostics
+  [12] Uninstall Setup
   [G]  Gaming Mode
   [0]  Exit
 ```
@@ -236,11 +257,19 @@ the hypervisor from anti-cheat systems:
 | Hypervisor bit | disabled in CPU features |
 | VMware backdoor (VMPort) | disabled |
 | PMU | disabled |
-| SMBIOS/DMI anomalies | host SMBIOS dump |
+| SMBIOS/DMI anomalies | Spoofed MSI B550 TOMAHAWK + AMI BIOS via sysinfo |
+| Hyper-V enlightenments | Enabled (relaxed, vapic, spinlocks, vpindex, synic, stimer) |
 | KVM clock source | disabled |
 | MSR filtering | fault mode |
 | Disk model names | spoofed to real manufacturers |
 | MAC address | host OUI used |
+| Evdev input | `-object input-linux` with `grab_all=on` for simultaneous KB+Mouse toggle |
+
+### AMD Driver Compatibility
+
+- **AMD driver 25.9.1** is the last known working version for EAC games
+- Newer AMD drivers (25.10.2+) trigger `aticfx64.dll` / `atidxx64.dll` untrusted in EAC
+- SMBIOS spoofing prevents AMD Adrenalin from detecting the VM environment
 
 ---
 
@@ -252,19 +281,27 @@ arch-gpu-vm-setup/
 ├── utils.sh                   # Shared helpers and logging
 ├── gaming-mode.sh             # Gaming mode interactive menu
 ├── gaming-mode-daemon.sh      # Background daemon for GPU switching
+├── gaming-mode-helper.sh      # Privileged helper (NOPASSWD sudoers)
 ├── gaming-mode-setup.sh       # First-time gaming mode configuration wizard
+├── gaming-mode.conf           # Generated config (auto-created)
+├── config.conf                # GPU/IOMMU config (auto-created)
 ├── modules/
 │   ├── 00_prereq_check.sh     # Hardware/software verification
 │   ├── 01_bios_guide.sh       # BIOS configuration guide
 │   ├── 02_virtualization.sh   # QEMU/KVM/libvirt installation
 │   ├── 03_vfio_setup.sh       # VFIO/IOMMU configuration
-│   ├── 04_gpu_bind.sh         # Dynamic GPU binding
+│   ├── 04_gpu_bind.sh         # Dynamic GPU binding (GPU selection menu)
 │   ├── 05_qemu_patched.sh     # Compile patched QEMU
 │   ├── 06_edk2_patched.sh     # Compile patched EDK2/OVMF
-│   ├── 08_deploy_vm.sh        # Windows VM deployment
+│   ├── 07_virtio_network.sh   # VirtIO network driver setup
+│   ├── 08_deploy_vm.sh        # Windows VM deployment (with SMBIOS spoofing)
 │   ├── 09_fortnite_patches.sh # EAC anti-detection checklist
 │   ├── 10_diagnostics.sh      # System diagnostics
 │   └── 11_uninstall.sh        # Complete removal
+├── firmware/
+│   ├── OVMF_CODE.fd           # Patched UEFI firmware code
+│   ├── OVMF_VARS.fd           # UEFI variables template
+│   └── virtio-win.iso         # VirtIO drivers for Windows
 └── patches/
     ├── QEMU/                  # QEMU anti-detection patches
     └── EDK2/                  # EDK2/OVMF firmware patches

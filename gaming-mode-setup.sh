@@ -69,12 +69,39 @@ else
 	gpu_audio_pci=""
 fi
 
-# Detect original driver for audio device
+# Detect original driver for audio device (always snd_hda_intel unless already overridden)
 gpu_audio_original_driver="snd_hda_intel"
 if [[ -n "$gpu_audio_pci" ]]; then
-	gpu_audio_original_driver=$(readlink "/sys/bus/pci/devices/${gpu_audio_pci}/driver" \
-		2>/dev/null | xargs basename 2>/dev/null || echo "snd_hda_intel")
+	current_audio_driver=$(readlink "/sys/bus/pci/devices/${gpu_audio_pci}/driver" \
+		2>/dev/null | xargs basename 2>/dev/null)
+	# Only trust the current driver if it's NOT vfio-pci (which means VFIO was already applied)
+	if [[ -n "$current_audio_driver" && "$current_audio_driver" != "vfio-pci" ]]; then
+		gpu_audio_original_driver="$current_audio_driver"
+	fi
 	fmtr::log "Audio device original driver: $gpu_audio_original_driver"
+fi
+
+# Detect iGPU (the other VGA device that is NOT the dGPU)
+igpu_pci=""
+igpu_audio_pci=""
+for dev in /sys/bus/pci/devices/*; do
+	[[ -f "$dev/class" ]] || continue
+	dev_class=$(cat "$dev/class" 2>/dev/null)
+	[[ "$dev_class" == 0x03* ]] || continue
+	dev_bdf=$(basename "$dev")
+	if [[ "$dev_bdf" != "$GPU_PCI_ADDR" ]]; then
+		igpu_pci="$dev_bdf"
+		igpu_audio_slot="${igpu_pci%.*}"
+		igpu_audio_pci="${igpu_audio_slot}.1"
+		if [[ ! -e "/sys/bus/pci/devices/${igpu_audio_pci}" ]]; then
+			igpu_audio_pci=""
+		fi
+		fmtr::log "iGPU detected: $igpu_pci (audio: ${igpu_audio_pci:-none})"
+		break
+	fi
+done
+if [[ -z "$igpu_pci" ]]; then
+	fmtr::warn "No iGPU detected alongside dGPU"
 fi
 
 # =============================================================================
@@ -122,9 +149,16 @@ done
 if [[ -z "$drm_dgpu" || -z "$drm_igpu" ]]; then
 	fmtr::error "Could not detect both iGPU and dGPU DRM devices."
 	fmtr::info "Make sure both GPUs are active (dGPU bound to amdgpu, not vfio-pci)."
-	fmtr::info "Current dGPU driver: $(readlink "/sys/bus/pci/devices/${GPU_PCI_ADDR}/driver" 2>/dev/null | xargs basename 2>/dev/null || echo 'none')"
-	exit 1
 fi
+
+# Detect original driver (always amdgpu for this hardware, but we try to be smart)
+gpu_original_driver="amdgpu"
+# If we are currently on vfio-pci, we should still use amdgpu as the return target
+current_gpu_driver=$(readlink "/sys/bus/pci/devices/${GPU_PCI_ADDR}/driver" 2>/dev/null | xargs basename 2>/dev/null || echo "none")
+if [[ "$current_gpu_driver" != "vfio-pci" && "$current_gpu_driver" != "none" ]]; then
+	gpu_original_driver="$current_gpu_driver"
+fi
+fmtr::log "Original GPU driver: $gpu_original_driver"
 
 # =============================================================================
 # SECTION 4: Detect Monitors from Hyprland
@@ -282,8 +316,12 @@ if [[ -n "$available_vms" ]]; then
 	else
 		fmtr::info "Available VMs:"
 		echo "$available_vms" | nl -w2 -s') '
-		read -rp "$(fmtr::ask_inline "Enter VM name (default: WindowsVM): ")" vm_input
-		vm_name=${vm_input:-WindowsVM}
+		read -rp "$(fmtr::ask_inline "Select VM [1-$vm_count] (or type name): ")" vm_input
+		if [[ "$vm_input" =~ ^[0-9]+$ ]] && ((vm_input > 0 && vm_input <= vm_count)); then
+			vm_name=$(echo "$available_vms" | sed -n "${vm_input}p")
+		else
+			vm_name=${vm_input:-WindowsVM}
+		fi
 	fi
 else
 	fmtr::info "No VMs found. Using default: WindowsVM"
@@ -323,8 +361,12 @@ GM_VM_NAME="${vm_name}"
 # GPU PCI addresses (from config.conf)
 GM_GPU_PCI="${GPU_PCI_ADDR}"
 GM_GPU_AUDIO_PCI="${gpu_audio_pci}"
-GM_GPU_ORIGINAL_DRIVER="${GPU_DRIVER_ORIGINAL:-amdgpu}"
+GM_GPU_ORIGINAL_DRIVER="${gpu_original_driver:-amdgpu}"
 GM_GPU_AUDIO_ORIGINAL_DRIVER="${gpu_audio_original_driver}"
+
+# iGPU PCI (the other VGA device, not the dGPU)
+GM_IGPU_PCI="${igpu_pci:-}"
+GM_IGPU_AUDIO_PCI="${igpu_audio_pci:-}"
 
 # DRM devices (detected by PCI ID)
 GM_DRM_DGPU="${drm_dgpu}"
@@ -386,6 +428,130 @@ if [[ "$has_gaming_bind" == false && -n "$keybind_file" ]]; then
 fi
 
 # =============================================================================
+# SECTION 10.2: Evdev Input Setup (Keyboard & Mouse Passthrough)
+# =============================================================================
+
+fmtr::info "Detecting Evdev input devices for hardware passthrough..."
+
+# Detect Keyboard
+kbd_path=$(find /dev/input/by-id/ -name "*Keyboard*event-kbd*" 2>/dev/null | head -n 1)
+# Detect Mouse
+mouse_path=$(find /dev/input/by-id/ -name "*Mouse*event-mouse*" 2>/dev/null | head -n 1)
+
+if [[ -n "$kbd_path" || -n "$mouse_path" ]]; then
+	# Resolve symlinks to real /dev/input/eventX paths for cgroup ACL
+	kbd_real=$(readlink -f "$kbd_path" 2>/dev/null)
+	mouse_real=$(readlink -f "$mouse_path" 2>/dev/null)
+	fmtr::info "Keyboard: $kbd_path -> $kbd_real"
+	fmtr::info "Mouse:    $mouse_path -> $mouse_real"
+
+	# Ensure QEMU (libvirt) can access evdev devices
+	qemu_conf="/etc/libvirt/qemu.conf"
+	if [[ -f "$qemu_conf" ]]; then
+		fmtr::info "Configuring cgroup device ACL for evdev access..."
+
+		# Add libvirt-qemu to input group (for device file permissions)
+		sudo usermod -aG input libvirt-qemu 2>/dev/null || true
+
+		changed=false
+		for dev in "$kbd_real" "$mouse_real"; do
+			[[ -z "$dev" || ! -e "$dev" ]] && continue
+			if ! sudo grep -qF "$dev" "$qemu_conf" 2>/dev/null; then
+				sudo sed -i "/^#cgroup_device_acl = \[/a\\    \"$dev\"," "$qemu_conf"
+				changed=true
+				fmtr::log "Added $dev to cgroup_device_acl"
+			fi
+		done
+
+		# Uncomment the cgroup_device_acl line if still commented
+		if sudo grep -q '^#cgroup_device_acl' "$qemu_conf"; then
+			sudo sed -i 's/^#cgroup_device_acl/cgroup_device_acl/' "$qemu_conf"
+			changed=true
+		fi
+
+		if $changed; then
+			fmtr::info "Restarting libvirtd to apply ACL changes..."
+			sudo systemctl reset-failed libvirtd 2>/dev/null || true
+			sudo systemctl restart libvirtd 2>/dev/null || true
+			# Wait for libvirtd to be fully ready
+			for i in $(seq 1 15); do
+				virsh list &>/dev/null && break
+				sleep 1
+			done
+		fi
+	fi
+
+	fmtr::info "Injecting Stable Evdev Passthrough into VM XML..."
+	virsh dumpxml "$vm_name" >/tmp/vm_stable_setup.xml
+
+	cat >/tmp/vm_evdev_inject.py <<PYEOF
+import sys, re
+xml_path = '/tmp/vm_stable_setup.xml'
+with open(xml_path, 'r') as f:
+    xml = f.read()
+
+# 1. Purge legacy / faulty tags
+xml = re.sub(r'  <qemu:commandline>.*?</qemu:commandline>\n', '', xml, flags=re.DOTALL)
+xml = re.sub(r'    <input type=.evdev.*?</input>\s*\n', '', xml, flags=re.DOTALL)
+xml = re.sub(r'    <shmem name=.looking-glass. .*?/shmem>\n', '', xml, flags=re.DOTALL)
+xml = re.sub(r'    <audio id=.[0-9].*?/>\n', '', xml, flags=re.DOTALL)
+xml = re.sub(r'    <audio id=.[0-9].*?</audio>\n', '', xml, flags=re.DOTALL)
+
+# 2. Paths
+kbd = '$kbd_path'
+mouse = '$mouse_path'
+
+# 3. Build qemu:commandline with -object input-linux (grab_all on keyboard
+#    cascades toggle to ALL devices — cannot be done with <input type='evdev'>)
+qemu_cmd = '''  <qemu:commandline>
+    <qemu:arg value='-object'/>
+    <qemu:arg value='input-linux,id=kbd1,evdev=%s,grab_all=on,grab-toggle=alt-alt,repeat=on'/>
+    <qemu:arg value='-object'/>
+    <qemu:arg value='input-linux,id=mouse1,evdev=%s,grab-toggle=alt-alt'/>
+    <qemu:arg value='-device'/>
+    <qemu:arg value='ich9-intel-hda'/>
+    <qemu:arg value='-audiodev'/>
+    <qemu:arg value='pa,id=snd0,server=127.0.0.1'/>
+    <qemu:arg value='-device'/>
+    <qemu:arg value='hda-output,audiodev=snd0'/>
+  </qemu:commandline>''' % (kbd, mouse)
+
+xml = xml.replace('</domain>', qemu_cmd + '\n</domain>')
+
+# Ensure xmlns:qemu namespace on root <domain> element
+if 'xmlns:qemu' not in xml:
+    xml = xml.replace('<domain ', '<domain xmlns:qemu="http://libvirt.org/schemas/domain/qemu/1.0" ', 1)
+
+if '</domain>' in xml:
+    with open(xml_path, 'w') as f:
+        f.write(xml)
+PYEOF
+
+	python3 /tmp/vm_evdev_inject.py
+	if virsh define /tmp/vm_stable_setup.xml &>/dev/null; then
+		fmtr::log "Hardware Toggle & Audio Bridge successfully mapped"
+	else
+		fmtr::warn "Failed to define VM with definitive fix"
+	fi
+	rm -f /tmp/vm_evdev_inject.py
+else
+	fmtr::warn "Could not auto-detect keyboard/mouse in /dev/input/by-id/"
+fi
+
+# =============================================================================
+# SECTION 10.3: Display Cleanup (Removing Virtual VGA/Spice)
+# =============================================================================
+
+if virsh dumpxml "$vm_name" | grep -E "<graphics|<video" &>/dev/null; then
+	fmtr::info "Cleaning up legacy virtual display devices (Spice/QXL)..."
+	sudo virt-xml "$vm_name" --remove-device --graphics all &>/dev/null || true
+	sudo virt-xml "$vm_name" --remove-device --video all &>/dev/null || true
+	fmtr::log "Virtual displays removed. Windows will now boot exclusively on the dGPU."
+else
+	fmtr::log "No virtual display devices found. Clean state verified."
+fi
+
+# =============================================================================
 # SECTION 10.5: Sudoers Configuration
 # =============================================================================
 
@@ -418,11 +584,12 @@ After=default.target
 
 [Service]
 Type=simple
+ExecStartPre=/bin/mkdir -p /tmp/gaming-mode
 ExecStart=${SCRIPT_DIR}/gaming-mode-daemon.sh
 Restart=on-failure
 RestartSec=5
-StandardOutput=append:/tmp/gaming-mode/log
-StandardError=append:/tmp/gaming-mode/log
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=default.target
@@ -450,16 +617,16 @@ cat "${SCRIPT_DIR}/gaming-mode.conf"
 echo ""
 fmtr::log "Setup complete!"
 echo ""
-	fmtr::info "Next steps:"
-	fmtr::info "  1. Run ./gaming-mode.sh (or press Super+G)"
-	fmtr::info "  2. Select 'Start Gaming Mode'"
-	fmtr::info "  3. Hyprland will restart on iGPU - switch monitor to HDMI"
-	fmtr::info "  4. Confirm the screen looks correct"
-	fmtr::info "  5. Windows VM starts automatically"
-	fmtr::info "  6. Use two ALT keys to capture/release keyboard/mouse"
-	fmtr::info "  7. Switch monitor to dGPU output to play"
-	echo ""
-	fmtr::info "To reconfigure, run: ./gaming-mode-setup.sh"
-}
-
-main "$@"
+fmtr::info ">> INPUT CONTROL (Hardware Passthrough):"
+fmtr::info "  Press both ALT keys (Left + Right) to toggle keyboard and mouse between host and VM."
+echo ""
+fmtr::info "Next steps:"
+fmtr::info "  1. Run ./gaming-mode.sh (or press Super+G)"
+fmtr::info "  2. Select 'Start Gaming Mode'"
+fmtr::info "  3. Hyprland will restart on iGPU - switch monitor to HDMI"
+fmtr::info "  4. Confirm the screen looks correct"
+fmtr::info "  5. Windows VM starts automatically"
+fmtr::info "  6. Press both ALTs to toggle keyboard + mouse between host and VM"
+fmtr::info "  7. Switch monitor to dGPU output to play"
+echo ""
+fmtr::info "To reconfigure, run: ./gaming-mode-setup.sh"

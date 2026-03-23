@@ -31,6 +31,7 @@ main_menu() {
 		"Compile QEMU (with anti-detection patches)"
 		"Compile EDK2/OVMF (patched firmware)"
 		"Deploy Windows VM"
+		"VirtIO Network Driver (improve VM network speed)"
 		"Fortnite/EAC Specific Patches"
 		"System Diagnostics"
 		"Uninstall Everything"
@@ -48,11 +49,11 @@ main_menu() {
 		for ((i = 1; i < ${#options[@]} - 1; i++)); do
 			printf '  %b[%d]%b %s\n' "$TEXT_BRIGHT_YELLOW" "$i" "$RESET" "${options[i]}"
 		done
-		printf '  %b[G]%b %s\n' "$TEXT_BRIGHT_MAGENTA" "$RESET" "${options[${#options[@]} - 1]}"
+		printf '  %b[G]%b %s\n' "$TEXT_BRIGHT_MAGENTA" "$RESET" "${options[${#options[@]}-1]}"
 		printf '\n  %b[%d]%b %s\n\n' "$TEXT_BRIGHT_RED" 0 "$RESET" "${options[0]}"
 
 		local choice
-		read -rp "  Enter your choice [0-12, G]: " choice
+		read -rp "  Enter your choice [0-13, G]: " choice
 		clear
 
 		case $choice in
@@ -90,6 +91,10 @@ main_menu() {
 			;;
 		9)
 			fmtr::box_text "${options[9]}"
+			./modules/07_virtio_network.sh
+			;;
+		10)
+			fmtr::box_text "${options[10]}"
 			./modules/09_fortnite_patches.sh
 			;;
 		11)

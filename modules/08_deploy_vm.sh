@@ -230,8 +230,37 @@ $(if [[ "$CPU_VENDOR_ID" == "AuthenticAMD" ]]; then
 		echo '    <feature policy="disable" name="virt-ssbd"/>'
 	fi)
   </cpu>
+  <sysinfo type="smbios">
+    <bios>
+      <entry name="vendor">American Megatrends International, LLC.</entry>
+      <entry name="version">A.80</entry>
+      <entry name="date">12/15/2023</entry>
+    </bios>
+    <system>
+      <entry name="manufacturer">Micro-Star International Co., Ltd.</entry>
+      <entry name="product">MS-7C91</entry>
+      <entry name="version">1.0</entry>
+      <entry name="serial">To be filled by O.E.M.</entry>
+      <entry name="uuid">$vm_uuid</entry>
+      <entry name="sku">To be filled by O.E.M.</entry>
+      <entry name="family">To be filled by O.E.M.</entry>
+    </system>
+    <baseBoard>
+      <entry name="manufacturer">Micro-Star International Co., Ltd.</entry>
+      <entry name="product">MAG B550 TOMAHAWK (MS-7C91)</entry>
+      <entry name="version">1.0</entry>
+      <entry name="serial">To be filled by O.E.M.</entry>
+    </baseBoard>
+    <chassis>
+      <entry name="manufacturer">Micro-Star International Co., Ltd.</entry>
+      <entry name="version">1.0</entry>
+      <entry name="serial">To be filled by O.E.M.</entry>
+      <entry name="sku">To be filled by O.E.M.</entry>
+    </chassis>
+  </sysinfo>
   <os>
     <type arch="x86_64" machine="pc-q35-10.2">hvm</type>
+    <smbios mode="sysinfo"/>
     <loader readonly="yes" secure="yes" type="pflash" format="raw">${OVMF_CODE:-/usr/share/edk2/x64/OVMF_CODE.fd}</loader>
     <nvram template="${OVMF_VARS:-/usr/share/edk2/x64/OVMF_VARS.fd}" format="raw"></nvram>
     <bootmenu enable="yes"/>
@@ -240,16 +269,16 @@ $(if [[ "$CPU_VENDOR_ID" == "AuthenticAMD" ]]; then
     <acpi/>
     <apic/>
     <hyperv mode="custom">
-      <relaxed state="off"/>
-      <vapic state="off"/>
-      <spinlocks state="off"/>
-      <vpindex state="off"/>
+      <relaxed state="on"/>
+      <vapic state="on"/>
+      <spinlocks state="on" retries="0x1fff"/>
+      <vpindex state="on"/>
       <runtime state="off"/>
-      <synic state="off"/>
-      <stimer state="off"/>
-      <reset state="off"/>
+      <synic state="on"/>
+      <stimer state="on"/>
+      <reset state="on"/>
       <vendor_id state="on" value="$CPU_VENDOR_ID"/>
-      <frequencies state="off"/>
+      <frequencies state="on"/>
       <reenlightenment state="off"/>
       <tlbflush state="off"/>
       <ipi state="off"/>
@@ -269,7 +298,7 @@ $(if [[ "$CPU_VENDOR_ID" == "AuthenticAMD" ]]; then
   <clock offset="localtime">
     <timer name="tsc" present="yes" mode="native"/>
     <timer name="kvmclock" present="no"/>
-    <timer name="hypervclock" present="no"/>
+    <timer name="hypervclock" present="yes"/>
   </clock>
   <pm>
     <suspend-to-mem enabled="yes"/>
