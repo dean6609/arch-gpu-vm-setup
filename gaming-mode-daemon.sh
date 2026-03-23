@@ -331,7 +331,8 @@ daemon_start_gaming() {
 
 	# Create a TCP audio bridge on localhost to bypass UID/permission issues
 	# This is the most robust way to share audio without manual cookie hacks
-	pactl load-module module-native-protocol-tcp auth-ip-acl=127.0.0.1 &>/dev/null
+	pactl unload-module module-native-protocol-tcp &>/dev/null || true
+	pactl load-module module-native-protocol-tcp auth-cookie-enabled=0 auth-ip-acl=127.0.0.1 &>/dev/null
 
 	if ! virsh start "$VM_NAME" 2>>"${STATE_DIR}/log"; then
 		log "Failed to start VM - reverting"

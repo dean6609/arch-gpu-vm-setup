@@ -331,9 +331,6 @@ ${gpu_audio_section}
     </video>
     <graphics type="spice" autoport="yes"/>
     <audio id="1" type="spice"/>
-    <sound model="ich9">
-      <audio id="1"/>
-    </sound>
   </devices>
 EOF
 
