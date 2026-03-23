@@ -329,10 +329,10 @@ daemon_start_gaming() {
 
 	log "Hyprland running (PID $(pgrep -x Hyprland)), iGPU DRM: $DRM_IGPU"
 
-	# Create a TCP audio bridge on localhost to bypass UID/permission issues
-	# This is the most robust way to share audio without manual cookie hacks
+	# Audio TCP bridge is configured statically in PipeWire config
+	# ~/.config/pipewire/pipewire-pulse.conf.d/10-vm-audio.conf
+	# Ensure no conflicting dynamic module is loaded
 	pactl unload-module module-native-protocol-tcp &>/dev/null || true
-	pactl load-module module-native-protocol-tcp auth-cookie-enabled=0 auth-ip-acl=127.0.0.1 &>/dev/null
 
 	if ! virsh start "$VM_NAME" 2>>"${STATE_DIR}/log"; then
 		log "Failed to start VM - reverting"
@@ -436,8 +436,7 @@ daemon_revert() {
 	restart_hyprland "revert-dGPU"
 
 	echo "idle" >"${STATE_DIR}/state"
-	# Unload TCP audio module
-	pactl unload-module $(pactl list modules short | grep "module-native-protocol-tcp" | awk '{print $1}') &>/dev/null || true
+	# Static PipeWire TCP config in 10-vm-audio.conf handles audio automatically
 
 	log "=== REVERT COMPLETE ==="
 }
