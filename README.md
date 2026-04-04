@@ -9,6 +9,14 @@
 
 ---
 
+## Quick Install
+
+```bash
+git clone https://github.com/dean6609/arch-gpu-vm-setup && cd arch-gpu-vm-setup && npm install && npm run dev
+```
+
+---
+
 ## Quick Start
 
 ```bash
@@ -18,7 +26,7 @@ npm install
 npm run dev
 ```
 
-Navigate the menu with arrow keys or mouse. Press Enter to select.
+Navigate the menu with arrow keys or mouse. Press <kbd>Enter</kbd> to select.
 
 ---
 
@@ -35,18 +43,20 @@ Navigate the menu with arrow keys or mouse. Press Enter to select.
 | **RAM** | 16 GB minimum (8 GB host + 8 GB VM) |
 | **BIOS** | IOMMU enabled, Primary Display set to iGPU |
 
+> [!IMPORTANT]
 > **Why `linux-zen`?** The `pcie_acs_override` patch is built into `linux-zen`. It is essential for proper IOMMU group isolation. The standard kernel may work but is untested.
 >
-> ```bash
-> sudo pacman -S linux-zen linux-zen-headers
-> sudo bootctl set-default <your-linux-zen-entry>
-> ```
+> > ```bash
+> > sudo pacman -S linux-zen linux-zen-headers
+> > sudo bootctl set-default <your-linux-zen-entry>
+> > ```
 
 ---
 
 ## Gaming Mode
 
-> Switch your GPU between Linux and a Windows VM without rebooting.
+> [!NOTE]
+> Switch your GPU between Linux and a Windows VM **without rebooting**.
 
 ```bash
 npm run dev  # Select [G] Gaming Mode
@@ -56,13 +66,14 @@ npm run dev  # Select [G] Gaming Mode
 
 | Step | Action | Result |
 |---|---|---|
-| Start | GPU transfers to VM | Hyprland moves to iGPU at 60 Hz |
-| Play | Switch monitor input to dGPU output | Full performance on Windows VM |
-| Stop | GPU returns to Linux | Hyprland switches back to native refresh rate |
+| **Start** | GPU transfers to VM | Hyprland moves to iGPU at 60 Hz |
+| **Play** | Switch monitor input to dGPU output | Full performance on Windows VM |
+| **Stop** | GPU returns to Linux | Hyprland switches back to native refresh rate |
 
-Toggle keyboard and mouse between host and VM with `Left Alt + Right Alt`.
+Toggle keyboard and mouse between host and VM with <kbd>Left Alt</kbd> + <kbd>Right Alt</kbd>.
 
-> **Prerequisite:** Hyprland + UWSM is required for gaming mode GPU switching. This project was developed on [Dusky Linux](https://github.com/dusklinux/dusky), but Dusky is not required.
+> [!TIP]
+> Hyprland + UWSM is required for gaming mode GPU switching. This project was developed on [Dusky Linux](https://github.com/dusklinux/dusky), but Dusky is not required.
 
 ---
 
@@ -75,6 +86,7 @@ Toggle keyboard and mouse between host and VM with `Left Alt + Right Alt`.
 | **UWSM** | 0.26.x+ | Required for session management |
 | **Kernel** | linux-zen | ACS override patch included |
 
+> [!WARNING]
 > **AMD driver note:** Versions 25.10.2+ trigger `aticfx64.dll` untrusted in EasyAntiCheat. Pin to 25.9.1 for EAC compatibility.
 
 ---
@@ -95,7 +107,7 @@ Toggle keyboard and mouse between host and VM with `Left Alt + Right Alt`.
 | 10 | Fortnite / EAC Patches | Anti-cheat evasion checklist |
 | 11 | System Diagnostics | Full system status report |
 | 12 | Uninstall Everything | Clean removal |
-| G | Gaming Mode | One-click GPU switch — no reboot needed |
+| **G** | Gaming Mode | One-click GPU switch — no reboot needed |
 
 ---
 
@@ -103,11 +115,11 @@ Toggle keyboard and mouse between host and VM with `Left Alt + Right Alt`.
 
 | dGPU | iGPU | Status |
 |---|---|---|
-| NVIDIA RTX 5070 | AMD Ryzen 7 8700G | Verified |
-| NVIDIA RTX 4090 | Intel i9-13900K | Verified |
-| NVIDIA RTX 3060 Mobile | Intel i7-11800H (Lenovo Legion 5) | Verified |
-| NVIDIA RTX 2060 | AMD Sapphire 4GB | Verified |
-| AMD RX 580 | AMD Ryzen 5 5600G | Verified (primary test system) |
+| NVIDIA RTX 5070 | AMD Ryzen 7 8700G | <span style="color:#2ea44f">Verified</span> |
+| NVIDIA RTX 4090 | Intel i9-13900K | <span style="color:#2ea44f">Verified</span> |
+| NVIDIA RTX 3060 Mobile | Intel i7-11800H (Lenovo Legion 5) | <span style="color:#2ea44f">Verified</span> |
+| NVIDIA RTX 2060 | AMD Sapphire 4GB | <span style="color:#2ea44f">Verified</span> |
+| AMD RX 580 | AMD Ryzen 5 5600G | <span style="color:#2ea44f">Verified</span> (primary test system) |
 
 ---
 
@@ -115,11 +127,11 @@ Toggle keyboard and mouse between host and VM with `Left Alt + Right Alt`.
 
 | Game | Anti-Cheat | Status |
 |---|---|---|
-| Fortnite | EasyAntiCheat | Compatible |
-| Counter-Strike 2 | VAC | Compatible |
-| The Finals | EasyAntiCheat | Compatible |
-| Deadlock | VAC | Compatible |
-| VALORANT | Vanguard | Not supported |
+| Fortnite | EasyAntiCheat | <span style="color:#2ea44f">Compatible</span> |
+| Counter-Strike 2 | VAC | <span style="color:#2ea44f">Compatible</span> |
+| The Finals | EasyAntiCheat | <span style="color:#2ea44f">Compatible</span> |
+| Deadlock | VAC | <span style="color:#2ea44f">Compatible</span> |
+| VALORANT | Vanguard | <span style="color:#f85149">Not supported</span> |
 
 ### Detection Vectors Concealed
 
@@ -187,19 +199,24 @@ This project is a working snapshot for specific hardware. To adapt it:
    - **IOMMU groups mixed** — use `linux-zen` with `pcie_acs_override` kernel parameter
    - **Black screen after GPU switch** — check UWSM `WLR_DRM_DEVICES` value
 
+> [!TIP]
+> **Using AI agents to adapt this project:** Fork this repository and use AI coding agents (Claude, Qwen Code, GitHub Copilot, etc.) to adapt it for your specific hardware. Describe your CPU, GPUs, and motherboard to the agent, and it will identify which config files need changes and generate the appropriate patches.
+
+> [!IMPORTANT]
 > **AMD GPU Error 43 fix:** A VBIOS dump is required for AMD GPUs. Extract it with:
 >
-> ```bash
-> sudo sh -c 'echo 1 > /sys/bus/pci/devices/YOUR_GPU_PCI/rom && \
-> cat /sys/bus/pci/devices/YOUR_GPU_PCI/rom > firmware/rx580.rom && \
-> echo 0 > /sys/bus/pci/devices/YOUR_GPU_PCI/rom'
-> ```
->
-> Find your GPU PCI address with: `lspci | grep -i vga`
+> > ```bash
+> > sudo sh -c 'echo 1 > /sys/bus/pci/devices/YOUR_GPU_PCI/rom && \
+> > cat /sys/bus/pci/devices/YOUR_GPU_PCI/rom > firmware/rx580.rom && \
+> > echo 0 > /sys/bus/pci/devices/YOUR_GPU_PCI/rom'
+> > ```
+> >
+> > Find your GPU PCI address with: `lspci | grep -i vga`
 
+> [!CAUTION]
 > **VALORANT is not supported** — Vanguard uses kernel-level detection that cannot be bypassed via VM spoofing.
 >
-> **Back up your system** before running VFIO configuration.
+> > **Back up your system** before running VFIO configuration.
 
 ---
 
