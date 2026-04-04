@@ -1,370 +1,208 @@
-# 🎮 arch-gpu-vm-setup
+# arch-gpu-vm-setup
 
-> Automated GPU passthrough setup for Windows VM gaming on Arch Linux.  
-> Supports EasyAntiCheat (Fortnite ✅), VFIO, patched QEMU/EDK2,  
-> and dynamic GPU switching between host and VM without rebooting.
+> Automated GPU passthrough for Windows VM gaming on Arch Linux. Zero-reboot GPU switching, anti-detection patches, and a polished CLI — all in one.
 
----
-
-## ⚠️ DISCLAIMER — READ BEFORE USING
-
-| | |
-|---|---|
-| 🔒 | **Educational purposes only.** This project is for learning about Linux virtualization and GPU passthrough. |
-| ⚠️ | **Author is not responsible** for any damage, data loss, or account bans. |
-| 🍴 | **Users can fork and adapt** with AI assistance for their specific system. |
-| ⚖️ | **Use at your own risk.** Anti-cheat evasion may violate game Terms of Service. |
+[![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Arch%20Linux-brightgreen)](https://archlinux.org)
+[![WM](https://img.shields.io/badge/WM-Hyprland%20%2B%20UWSM-purple)](https://hyprland.org)
+[![Status](https://img.shields.io/badge/status-v3.0--rc-success)](https://github.com/dean6609/arch-gpu-vm-setup)
 
 ---
 
-# Arch Linux GPU Passthrough Gaming Setup (v2.1)
+## Quick Start
 
-| Status | Details |
-| :--- | :--- |
-| 🚀 | **Version 2.1 Released.** Major stability fixes, VM anti-detection hardening, and new modules. |
-| 🎮 | **Dual-ALT Input Toggle Fixed:** Keyboard + mouse toggle together via `grab_all=on`. |
-| 🛡️ | **VM Anti-Detection Hardened:** SMBIOS spoofing, Hyper-V enlightenments, EAC-compatible config. |
-| 🌐 | **New Module:** VirtIO Network Driver for full 1Gbps VM networking. |
-| ⚠️ | **Tested with linux-zen 6.19.8** — current working baseline. |
-| ✅ | **Maintenance Mode:** This project is now considered stable and complete. |
-
----
-
-![License](https://img.shields.io/badge/license-GPL--3.0-blue)
-![Platform](https://img.shields.io/badge/platform-Arch%20Linux%2B%20Dusky-brightgreen)
-![WM](https://img.shields.io/badge/WM-Hyprland%20%2B%20UWSM-purple)
-![Status](https://img.shields.io/badge/status-completed-success)
-![DE](https://img.shields.io/badge/DE-Dusky%20rice-blue)
-
----
-
-## 🖥️ Terminal Interface
-
-> The setup runs entirely in the terminal via interactive, user-friendly menus.
-
-### v2.1 Changelog
-
-| Component | Change |
-|-----------|--------|
-| `gaming-mode-daemon.sh` | Fixed Hyprland restart: `uwsm stop` instead of `pkill` (UWSM service has `Restart=no`). |
-| `gaming-mode-daemon.sh` | Added `restart_hyprland()` helper used in start/stop/revert flows. |
-| `gaming-mode-daemon.sh` | iGPU explicitly bound to `amdgpu` via helper script (was left driverless after vfio-pci unbind). |
-| `gaming-mode-helper.sh` | Added `unbind_device`, `clear_override` commands for NOPASSWD sysfs writes. |
-| `gaming-mode-setup.sh` | Evdev injection via temp file (fixes bash escaping in heredoc). `-object input-linux` with `grab_all=on`. |
-| `gaming-mode-setup.sh` | Audio driver detection ignores `vfio-pci` (defaults to `snd_hda_intel`). |
-| `gaming-mode-setup.sh` | Systemd service: `ExecStartPre=mkdir`, stdout to `journal` (fixes duplicate logs). |
-| `modules/04_gpu_bind.sh` | Added `modprobe vfio-pci` before bind (fixes hang). GPU selection menu. |
-| `modules/08_deploy_vm.sh` | SMBIOS spoofing (MSI B550 TOMAHAWK) + Hyper-V enlightenments for anti-detection. |
-| `modules/07_virtio_network.sh` | **New module:** VirtIO driver setup for 1Gbps VM networking. |
-| `main.sh` | Added option 9: VirtIO Network Driver. Menu now [0-13, G]. |
-| `config.conf` | Fixed GPU mapping (dGPU/iGPU was swapped). |
-
----
-
-**Main menu preview (v2.1):**
-```
-╔══════════════════════════════════════════════╗
-║         >> GPU Passthrough Gaming <<         ║
-║              Arch Linux Edition              ║
-╚══════════════════════════════════════════════╝
-
-  [1]  Prerequisites Check
-  [2]  BIOS Configuration Guide
-  [3]  Virtualization Setup (QEMU/KVM/libvirt)
-  [4]  VFIO / GPU Passthrough Configuration
-  [5]  GPU Binding Management
-  [6]  Compile QEMU (with anti-detection patches)
-  [7]  Compile EDK2/OVMF (patched firmware)
-  [8]  Deploy Windows VM
-  [9]  VirtIO Network Driver (improve VM network speed)
-  [10] Fortnite/EAC Specific Patches
-  [11] System Diagnostics
-  [12] Uninstall Setup
-  [G]  Gaming Mode
-  [0]  Exit
-```
-
----
-
-## ✅ Tested & Working
-
-| Game | Anti-Cheat | Status |
-|------|-----------|--------|
-| Fortnite | EasyAntiCheat | ✅ Works |
-| Counter-Strike 2 | VAC | ✅ Works |
-| The Finals | EasyAntiCheat | ✅ Works |
-| Deadlock | VAC | ✅ Works |
-| VALORANT | Vanguard | ❌ Not working |
-
----
-
-## 🖥️ Hardware Requirements
-
-- **2 GPUs**: 1 dedicated (for VM passthrough) + 1 integrated (for host)
-- **CPU**: AMD with SVM or Intel with VT-x/VT-d
-- **RAM**: 16GB minimum (8GB host + 8GB VM)
-- **BIOS**: IOMMU enabled, Primary Display = iGPU
-
-### Tested Hardware
-- NVIDIA RTX 5070 + AMD Ryzen 7 8700G (iGPU)
-- NVIDIA RTX 4090 + Intel i9-13900K (iGPU)
-- NVIDIA RTX 3060 Mobile + Intel i7-11800H (Lenovo Legion 5)
-- NVIDIA RTX 2060 + AMD Sapphire 4GB (iGPU)
-- **AMD RX 580 + AMD Ryzen 5 5600G (iGPU) ← This repo's primary test system**
-
----
-
-## 📋 Requirements
-
-- **Arch Linux** (not tested on other distros)
-- **linux-zen kernel** (REQUIRED — see below)
-- Hyprland 0.54.x+
-- UWSM 0.26.x+
-- yay or paru (AUR helper)
-- sudo access
-
-### ⚠️ linux-zen Kernel is REQUIRED
-
-The **linux-zen** kernel is **not optional** and must be installed and set as the default boot option:
-
-**Why linux-zen is required:**
-- The ACS override patch (`pcie_acs_override=downstream,multifunction`) is built into linux-zen
-- This patch is essential for proper IOMMU group isolation, allowing GPU passthrough to work
-- The standard Linux kernel may work but is **NOT tested** — use at your own risk
-
-**Installation and setup:**
-```bash
-# Install linux-zen and headers
-sudo pacman -S linux-zen linux-zen-headers
-
-# Set as default boot entry (replace with your actual entry filename)
-sudo bootctl set-default 2026-03-13_13-42-53_linux-zen.conf
-
-# To find your entry filename:
-ls /boot/loader/entries/
-```
-
-### Note about Dusky rice
-
-This project was developed on the [Dusky rice](https://github.com/dusklinux/dusky) which includes a full Hyprland environment pre-configured. If you use Dusky, everything works out of the box. If not, you need at minimum Hyprland + UWSM plus the standard packages installed by the setup modules.
-
----
-
-## 📦 Verified Working Versions
-
-These are the exact versions used when this project was built and tested.
-If something breaks in the future, try matching these versions.
-Using newer versions may or may not work — this project is not actively maintained.
-
-| Component | Version | Notes |
-|-----------|---------|-------|
-| Arch Linux | Rolling (March 2026) | |
-| linux-zen | 6.19.8.zen1-1 | Required — has ACS patch |
-| Hyprland | 0.54.2 | |
-| UWSM | 0.26.4 | |
-| QEMU (compiled) | 10.2.0 | Compiled from source with patches |
-| QEMU (system) | 10.2.1-1 | Used as build dependency |
-| EDK2/OVMF | 202508-1 | System package for dependencies |
-| Mesa | 26.0.2-1 | AMD GPU drivers |
-| vulkan-radeon | 26.0.2-1 | |
-| yay | 12.5.7 | AUR helper |
-| Python | 3.14.3 | |
-
-To install a specific package version in Arch:
-```bash
-# Downgrade a package if needed
-sudo downgrade package-name
-# Or from Arch archive:
-# https://archive.archlinux.org/packages/
-```
-
----
-
-## 🚀 Quick Start
-
-### 1. Clone the repository
 ```bash
 git clone https://github.com/dean6609/arch-gpu-vm-setup
 cd arch-gpu-vm-setup
+npm install
+npm run dev
 ```
 
-### 2. Run the main setup menu
+Navigate the menu with arrow keys or mouse. Press Enter to select.
+
+---
+
+## Requirements
+
+| Requirement | Details |
+|---|---|
+| **OS** | Arch Linux |
+| **Kernel** | `linux-zen` — required for ACS override patch |
+| **Compositor** | Hyprland 0.54.x+ |
+| **Session Manager** | UWSM 0.26.x+ |
+| **GPUs** | 2 GPUs — one dedicated (for VM) + one integrated (for host) |
+| **CPU** | AMD with SVM or Intel with VT-x/VT-d |
+| **RAM** | 16 GB minimum (8 GB host + 8 GB VM) |
+| **BIOS** | IOMMU enabled, Primary Display set to iGPU |
+
+> **Why `linux-zen`?** The `pcie_acs_override` patch is built into `linux-zen`. It is essential for proper IOMMU group isolation. The standard kernel may work but is untested.
+>
+> ```bash
+> sudo pacman -S linux-zen linux-zen-headers
+> sudo bootctl set-default <your-linux-zen-entry>
+> ```
+
+---
+
+## Gaming Mode
+
+> Switch your GPU between Linux and a Windows VM without rebooting.
+
 ```bash
-./main.sh
+npm run dev  # Select [G] Gaming Mode
 ```
 
-### 3. Follow the menu in order
-```
-[1]  Prerequisites Check
-[2]  BIOS Configuration Guide
-[3]  Virtualization Setup (QEMU/KVM/libvirt)
-[4]  VFIO / GPU Passthrough Configuration
-[5]  GPU Binding Management
-[6]  Compile QEMU (with anti-detection patches)
-[7]  Compile EDK2/OVMF (patched firmware)
-[8]  Deploy Windows VM
-[9]  Fortnite/EAC Specific Patches
-[10] System Diagnostics
-[11] Uninstall Setup
-[G]  Gaming Mode
-```
+**How it works:**
+
+| Step | Action | Result |
+|---|---|---|
+| Start | GPU transfers to VM | Hyprland moves to iGPU at 60 Hz |
+| Play | Switch monitor input to dGPU output | Full performance on Windows VM |
+| Stop | GPU returns to Linux | Hyprland switches back to native refresh rate |
+
+Toggle keyboard and mouse between host and VM with `Left Alt + Right Alt`.
+
+> **Prerequisite:** Hyprland + UWSM is required for gaming mode GPU switching. This project was developed on [Dusky Linux](https://github.com/dusklinux/dusky), but Dusky is not required.
 
 ---
 
-## 🎮 Gaming Mode
+## Verified Versions
 
-The gaming mode script handles automatic GPU switching between Linux and Windows VM:
+| Component | Version | Notes |
+|---|---|---|
+| **AMD GPU Driver** | 25.9.1 | Last known working version for EAC games |
+| **Hyprland** | 0.54.x+ | Required for GPU switching |
+| **UWSM** | 0.26.x+ | Required for session management |
+| **Kernel** | linux-zen | ACS override patch included |
 
-```bash
-# Launch gaming mode (Super+G also works)
-./gaming-mode.sh
-```
-
-### Gaming Mode Flow
-1. **Start**: GPU switches to VM, Hyprland moves to iGPU at 60Hz
-2. **Play**: Switch monitor input to DP/HDMI connected to your dGPU
-3. **Stop**: GPU returns to Linux, Hyprland switches back to dGPU at full Hz
+> **AMD driver note:** Versions 25.10.2+ trigger `aticfx64.dll` untrusted in EasyAntiCheat. Pin to 25.9.1 for EAC compatibility.
 
 ---
 
-## 🖱️ Monitor Switching & Input Control (Evdev)
+## Modules
 
-This project uses **physical monitor input switching** combined with **Evdev passthrough** for a native gaming experience:
-
-| Feature | Details |
-|---------|-------------|
-| **Native Refresh Rates** | Use full 240Hz, 144Hz, 120Hz — no streaming overhead. |
-| **Zero-Latency Audio** | Native TCP bridge to host PipeWire/PulseAudio. |
-| **Seamless Input** | Use `Left Alt + Right Alt` to instantly toggle mouse/keyboard between Linux and Windows. |
-
-**How to use:**
-1. Start gaming mode: `./gaming-mode.sh` (or `Super+G`)
-2. Switch your monitor's input to the dGPU output.
-3. Your keyboard and mouse are automatically captured.
-4. **Capture/Release**: Press **both ALT keys** simultaneously to return your mouse to Linux.
-5. When done, stop gaming mode to return the GPU to Linux.
+| # | Module | Description |
+|---|---|---|
+| 01 | Prerequisites Check | Verifies CPU, GPU, IOMMU, RAM, and bootloader |
+| 02 | BIOS Configuration Guide | Guides you through BIOS settings for your CPU |
+| 03 | Virtualization Setup | Installs QEMU, KVM, libvirt |
+| 04 | VFIO / GPU Passthrough | Configures IOMMU groups, kernel params, and VFIO |
+| 05 | GPU Binding Management | Dynamically bind/unbind GPU between host and VM |
+| 06 | Compile QEMU | Builds QEMU with anti-detection patches |
+| 07 | Compile EDK2/OVMF | Compiles patched firmware |
+| 08 | Deploy Windows VM | Creates the VM with SMBIOS spoofing |
+| 09 | VirtIO Network Driver | Enables 1 Gbps VM networking |
+| 10 | Fortnite / EAC Patches | Anti-cheat evasion checklist |
+| 11 | System Diagnostics | Full system status report |
+| 12 | Uninstall Everything | Clean removal |
+| G | Gaming Mode | One-click GPU switch — no reboot needed |
 
 ---
 
-## 🛡️ Anti-Detection Patches
+## Tested Hardware
 
-This project compiles patched versions of QEMU and EDK2/OVMF that hide 
-the hypervisor from anti-cheat systems:
+| dGPU | iGPU | Status |
+|---|---|---|
+| NVIDIA RTX 5070 | AMD Ryzen 7 8700G | Verified |
+| NVIDIA RTX 4090 | Intel i9-13900K | Verified |
+| NVIDIA RTX 3060 Mobile | Intel i7-11800H (Lenovo Legion 5) | Verified |
+| NVIDIA RTX 2060 | AMD Sapphire 4GB | Verified |
+| AMD RX 580 | AMD Ryzen 5 5600G | Verified (primary test system) |
 
-| Detection Vector | Fix Applied |
-|-----------------|-------------|
-| KVM signature in CPUID | kvm.hidden=on + QEMU patch |
-| Hypervisor bit | disabled in CPU features |
-| VMware backdoor (VMPort) | disabled |
-| PMU | disabled |
-| SMBIOS/DMI anomalies | Spoofed MSI B550 TOMAHAWK + AMI BIOS via sysinfo |
+---
+
+## Anti-Cheat Compatibility
+
+| Game | Anti-Cheat | Status |
+|---|---|---|
+| Fortnite | EasyAntiCheat | Compatible |
+| Counter-Strike 2 | VAC | Compatible |
+| The Finals | EasyAntiCheat | Compatible |
+| Deadlock | VAC | Compatible |
+| VALORANT | Vanguard | Not supported |
+
+### Detection Vectors Concealed
+
+| Vector | Mitigation |
+|---|---|
+| KVM signature in CPUID | `kvm.hidden=on` + QEMU patch |
+| Hypervisor bit | Disabled in CPU features |
+| VMware backdoor | Disabled |
+| PMU | Disabled |
+| SMBIOS/DMI | Spoofed to MSI B550 TOMAHAWK + AMI BIOS |
 | Hyper-V enlightenments | Enabled (relaxed, vapic, spinlocks, vpindex, synic, stimer) |
-| KVM clock source | disabled |
-| MSR filtering | fault mode |
-| Disk model names | spoofed to real manufacturers |
-| MAC address | host OUI used |
-| Evdev input | `-object input-linux` with `grab_all=on` for simultaneous KB+Mouse toggle |
-
-### AMD Driver Compatibility
-
-- **AMD driver 25.9.1** is the last known working version for EAC games
-- Newer AMD drivers (25.10.2+) trigger `aticfx64.dll` / `atidxx64.dll` untrusted in EAC
-- SMBIOS spoofing prevents AMD Adrenalin from detecting the VM environment
+| KVM clock source | Disabled |
+| MSR filtering | Fault mode |
+| Disk model names | Spoofed to real manufacturers |
+| MAC address | Host OUI used |
+| Evdev input | `-object input-linux` with `grab_all=on` |
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 arch-gpu-vm-setup/
-├── main.sh                    # Main interactive menu
-├── utils.sh                   # Shared helpers and logging
-├── gaming-mode.sh             # Gaming mode interactive menu
-├── gaming-mode-daemon.sh      # Background daemon for GPU switching
-├── gaming-mode-helper.sh      # Privileged helper (NOPASSWD sudoers)
-├── gaming-mode-setup.sh       # First-time gaming mode configuration wizard
-├── gaming-mode.conf           # Generated config (auto-created)
-├── config.conf                # GPU/IOMMU config (auto-created)
-├── modules/
-│   ├── 00_prereq_check.sh     # Hardware/software verification
-│   ├── 01_bios_guide.sh       # BIOS configuration guide
-│   ├── 02_virtualization.sh   # QEMU/KVM/libvirt installation
-│   ├── 03_vfio_setup.sh       # VFIO/IOMMU configuration
-│   ├── 04_gpu_bind.sh         # Dynamic GPU binding (GPU selection menu)
-│   ├── 05_qemu_patched.sh     # Compile patched QEMU
-│   ├── 06_edk2_patched.sh     # Compile patched EDK2/OVMF
-│   ├── 07_virtio_network.sh   # VirtIO network driver setup
-│   ├── 08_deploy_vm.sh        # Windows VM deployment (with SMBIOS spoofing)
-│   ├── 09_fortnite_patches.sh # EAC anti-detection checklist
-│   ├── 10_diagnostics.sh      # System diagnostics
-│   └── 11_uninstall.sh        # Complete removal
-├── firmware/
-│   ├── OVMF_CODE.fd           # Patched UEFI firmware code
-│   ├── OVMF_VARS.fd           # UEFI variables template
-│   └── virtio-win.iso         # VirtIO drivers for Windows
-└── patches/
-    ├── QEMU/                  # QEMU anti-detection patches
-    └── EDK2/                  # EDK2/OVMF firmware patches
+├── src/                          # Ink CLI (TypeScript + React)
+│   ├── components/               # UI components (menu, gaming mode, script runner)
+│   ├── hooks/                    # Terminal resize tracking
+│   ├── utils/                    # Colors, config, system detection, gaming mode
+│   └── index.tsx                 # Entry point
+├── scripts/                      # Bash backend
+│   ├── utils.sh                  # Shared helpers and logging
+│   ├── gaming-mode*.sh           # Gaming mode (daemon, helper, setup, menu)
+│   ├── modules/                  # Setup modules (00–12)
+│   └── patches/                  # QEMU, EDK2, and kernel patches
+├── package.json
+├── vitest.config.ts
+└── tsconfig.json
 ```
 
 ---
 
-## ⚠️ Important Notes
+## Commands
 
-- **Hyprland + UWSM required** for gaming mode GPU switching. This project was developed on the [Dusky rice](https://github.com/dusklinux/dusky) but Dusky is NOT required.
-- **AMD GPUs** require VBIOS dump to fix Error Code 43 in Windows
-```bash
-  sudo sh -c 'echo 1 > /sys/bus/pci/devices/0000:01:00.0/rom && \
-  cat /sys/bus/pci/devices/0000:01:00.0/rom > firmware/rx580.rom && \
-  echo 0 > /sys/bus/pci/devices/0000:01:00.0/rom'
-```
-  > ⚠️ Replace `0000:01:00.0` with YOUR GPU's actual PCI address.
-  > Find it with: `lspci | grep -i vga`
-- **VALORANT** does not work — Vanguard uses kernel-level detection
-- Backup your system before running VFIO configuration
+| Command | Description |
+|---|---|
+| `npm run dev` | Start interactive CLI (development) |
+| `npm start` | Start compiled CLI (production) |
+| `npm run build` | Compile TypeScript |
+| `npm run type-check` | Type check without building |
+| `npm test` | Run unit tests |
+| `npm run test:watch` | Run tests in watch mode |
 
 ---
 
-## 🔧 Adapting for Your System
+## Adapting for Your System
 
-This project is a working snapshot for specific hardware. To adapt it for your system:
+This project is a working snapshot for specific hardware. To adapt it:
 
 1. **Fork this repository**
-2. **Use AI assistance** (Claude, ChatGPT, etc.) with this prompt as a starting point:
-   > I want to adapt arch-gpu-vm-setup (https://github.com/dean6609/arch-gpu-vm-setup) for my system. My hardware is: [describe your CPU, GPUs, motherboard]. The verified working versions are listed in the README. What do I need to change for my specific setup?
-3. **Key files to adapt:**
-   - `gaming-mode-setup.sh` — setup wizard (triggered automatically on first run)
-   - `modules/03_vfio_setup.sh` — GPU PCI addresses are auto-detected
-   - `modules/08_deploy_vm.sh` — CPU topology is auto-detected via lscpu
-4. **Common issues and where to look:**
-   - AMD GPU Error Code 43 → VBIOS dump required (see Important Notes)
-   - IOMMU groups mixed → use linux-zen with pcie_acs_override kernel parameter
-   - Black screen after GPU switch → check UWSM env-hyprland WLR_DRM_DEVICES value
+2. **Key files to review:**
+   - `scripts/gaming-mode-setup.sh` — auto-detects monitors, DRM devices, and VMs
+   - `scripts/modules/03_vfio_setup.sh` — GPU PCI addresses are auto-detected
+   - `scripts/modules/08_deploy_vm.sh` — CPU topology is auto-detected via `lscpu`
+3. **Common issues:**
+   - **AMD GPU Error 43** — VBIOS dump required (see below)
+   - **IOMMU groups mixed** — use `linux-zen` with `pcie_acs_override` kernel parameter
+   - **Black screen after GPU switch** — check UWSM `WLR_DRM_DEVICES` value
+
+> **AMD GPU Error 43 fix:** A VBIOS dump is required for AMD GPUs. Extract it with:
+>
+> ```bash
+> sudo sh -c 'echo 1 > /sys/bus/pci/devices/YOUR_GPU_PCI/rom && \
+> cat /sys/bus/pci/devices/YOUR_GPU_PCI/rom > firmware/rx580.rom && \
+> echo 0 > /sys/bus/pci/devices/YOUR_GPU_PCI/rom'
+> ```
+>
+> Find your GPU PCI address with: `lspci | grep -i vga`
+
+> **VALORANT is not supported** — Vanguard uses kernel-level detection that cannot be bypassed via VM spoofing.
+>
+> **Back up your system** before running VFIO configuration.
 
 ---
 
-## 🤝 Credits & References
+## License
 
-### 🏗️ Built with AI Vibecoding
-
-This project was built entirely with AI assistance (vibecoding). The author used AI to:
-- Generate and adapt QEMU/EDK2 anti-detection patches
-- Create the modular shell script architecture
-- Automate GPU binding and switching logic
-- Write documentation and troubleshooting guides
-
-**Base projects for adaptation:**
-- [AutoVirt](https://github.com/Scrut1ny/AutoVirt) by Scrut1ny — QEMU/EDK2 patches, VM spoofing techniques, project architecture inspiration
-- [AutoVirt Demo Video](https://www.youtube.com/watch?v=dakWYBC6Jug) — Shows what's possible with similar setup
-- [Omarchy PR #3454](https://github.com/basecamp/omarchy/pull/3454) by slawomir-andreasik — GPU passthrough automation inspiration
-
-### 🛠️ Technologies
-
-- [Dusky rice](https://github.com/dusklinux/dusky) — The Hyprland environment this project was built on
-- [VFIO community](https://vfio.blogspot.com/) — GPU passthrough documentation
-
----
-
-## 📄 License
-
-GPL-3.0 — see [LICENSE](LICENSE) file.
+[GPL-3.0](LICENSE)

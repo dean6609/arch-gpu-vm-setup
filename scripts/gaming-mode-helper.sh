@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Helper script to perform privileged operations for Gaming Mode Daemon
+# Executed via sudo by the gaming-mode-daemon.sh
+
+COMMAND="$1"
+shift
+
+case "$COMMAND" in
+bind_gpu)
+	PCI_ADDR="$1"
+	TARGET_DRIVER="$2"
+	sys_path="/sys/bus/pci/devices/${PCI_ADDR}"
+
+	current=$(readlink "${sys_path}/driver" 2>/dev/null | xargs basename 2>/dev/null || echo "none")
+	if [[ "$current" != "none" ]]; then
+		echo "${PCI_ADDR}" >"/sys/bus/pci/drivers/${current}/unbind" 2>/dev/null || true
+		sleep 0.5
+	fi
+
+	echo -n >"${sys_path}/driver_override" 2>/dev/null || true
+	sleep 0.5
+	echo "${TARGET_DRIVER}" >"${sys_path}/driver_override"
+	sleep 0.5
+	echo "${PCI_ADDR}" >"/sys/bus/pci/drivers/${TARGET_DRIVER}/bind"
+	;;
+release_console)
+	echo 0 >/sys/class/vtconsole/vtcon0/bind 2>/dev/null || true
+	echo 0 >/sys/class/vtconsole/vtcon1/bind 2>/dev/null || true
+	echo "efi-framebuffer.0" >/sys/bus/platform/drivers/efi-framebuffer/unbind 2>/dev/null || true
+	;;
+bind_console)
+	echo 1 >/sys/class/vtconsole/vtcon0/bind 2>/dev/null || true
+	echo 1 >/sys/class/vtconsole/vtcon1/bind 2>/dev/null || true
+	echo "efi-framebuffer.0" >/sys/bus/platform/drivers/efi-framebuffer/bind 2>/dev/null || true
+	;;
+load_vfio)
+	modprobe vfio-pci 2>/dev/null || true
+	modprobe vfio 2>/dev/null || true
+	modprobe vfio_iommu_type1 2>/dev/null || true
+	;;
+unbind_device)
+	PCI_ADDR="$1"
+	sys_path="/sys/bus/pci/devices/${PCI_ADDR}"
+	if [[ -e "${sys_path}/driver" ]]; then
+		echo "${PCI_ADDR}" >"${sys_path}/driver/unbind" 2>/dev/null || true
+	fi
+	;;
+clear_override)
+	PCI_ADDR="$1"
+	sys_path="/sys/bus/pci/devices/${PCI_ADDR}"
+	echo -n >"${sys_path}/driver_override" 2>/dev/null || true
+	;;
+read_log)
+	tail -n 100 /var/log/libvirt/qemu/WindowsVM.log
+	;;
+*)
+	echo "Unknown command"
+	exit 1
+	;;
+esac

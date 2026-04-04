@@ -1,0 +1,31 @@
+{
+  "name": "arch-gpu-vm-setup",
+  "version": "3.0.0",
+  "description": "GPU passthrough setup for Windows VM gaming on Arch Linux — now with an Ink-based CLI",
+  "license": "GPL-3.0",
+  "type": "module",
+  "bin": {
+    "arch-gpu-vm": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.tsx",
+    "start": "node dist/index.js",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "execa": "^9.5.2",
+    "ink": "^5.1.0",
+    "react": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "@types/react": "^18.3.12",
+    "@vitest/coverage-v8": "^4.1.2",
+    "ink-testing-library": "^4.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
