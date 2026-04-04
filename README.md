@@ -4,16 +4,8 @@
 
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Arch%20Linux-brightgreen)](https://archlinux.org)
-[![WM](https://img.shields.io/badge/WM-Hyprland%20%2B%20UWSM-purple)](https://hyprland.org)
+[![WM](https://img.shields.io/badge/WM-Hyprland%20+%20UWSM-purple)](https://hyprland.org)
 [![Status](https://img.shields.io/badge/status-v3.0--rc-success)](https://github.com/dean6609/arch-gpu-vm-setup)
-
----
-
-## Quick Install
-
-```bash
-git clone https://github.com/dean6609/arch-gpu-vm-setup && cd arch-gpu-vm-setup && npm install && npm run dev
-```
 
 ---
 
@@ -26,7 +18,7 @@ npm install
 npm run dev
 ```
 
-Navigate the menu with arrow keys or mouse. Press <kbd>Enter</kbd> to select.
+You can navigate the menu with arrow keys and Enter to select. Click any menu item to select it, or double-click to activate it (same as Enter).
 
 ---
 
@@ -46,10 +38,31 @@ Navigate the menu with arrow keys or mouse. Press <kbd>Enter</kbd> to select.
 > [!IMPORTANT]
 > **Why `linux-zen`?** The `pcie_acs_override` patch is built into `linux-zen`. It is essential for proper IOMMU group isolation. The standard kernel may work but is untested.
 >
+> Install the kernel:
 > > ```bash
 > > sudo pacman -S linux-zen linux-zen-headers
-> > sudo bootctl set-default <your-linux-zen-entry>
 > > ```
+>
+> Then set it as your default boot entry:
+>
+> 1. List your boot entries:
+>    ```bash
+>    ls /boot/loader/entries/
+>    ```
+>
+>    This will show output similar to:
+>    ```
+>    arch.conf
+>    arch-linux-zen.conf
+>    arch-linux-lts.conf
+>    ```
+>
+> 2. Copy the exact filename that contains `linux-zen` from that output (e.g., `arch-linux-zen.conf`).
+>
+> 3. Set it as the default:
+>    ```bash
+>    sudo bootctl set-default arch-linux-zen.conf
+>    ```
 
 ---
 
@@ -85,9 +98,6 @@ Toggle keyboard and mouse between host and VM with <kbd>Left Alt</kbd> + <kbd>Ri
 | **Hyprland** | 0.54.x+ | Required for GPU switching |
 | **UWSM** | 0.26.x+ | Required for session management |
 | **Kernel** | linux-zen | ACS override patch included |
-
-> [!WARNING]
-> **AMD driver note:** Versions 25.10.2+ trigger `aticfx64.dll` untrusted in EasyAntiCheat. Pin to 25.9.1 for EAC compatibility.
 
 ---
 
@@ -179,9 +189,6 @@ arch-gpu-vm-setup/
 | `npm run dev` | Start interactive CLI (development) |
 | `npm start` | Start compiled CLI (production) |
 | `npm run build` | Compile TypeScript |
-| `npm run type-check` | Type check without building |
-| `npm test` | Run unit tests |
-| `npm run test:watch` | Run tests in watch mode |
 
 ---
 
